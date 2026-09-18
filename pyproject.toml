@@ -1,0 +1,27 @@
+[project]
+name = "ferspas-tile"
+version = "0.1.0"
+description = "XYZ+time raster tiles read straight from FERSPAS COGs, picked per request from a GeoParquet index"
+requires-python = "==3.12.*"
+dependencies = [
+    "fastapi==0.120.4",
+    "uvicorn[standard]==0.41.0",
+    "rio-tiler==7.8.1",
+    "duckdb==1.5.5",
+    "httpx==0.28.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==8.3.4",
+]
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ferspas_tile"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

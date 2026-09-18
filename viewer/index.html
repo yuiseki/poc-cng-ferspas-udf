@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FERSPAS tile</title>
+<link href="https://unpkg.com/maplibre-gl@6.10.0/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1c1e; --muted: #5d6165;
+    --panel: rgba(255,255,255,.92); --line: #d6d9dc; --accent: #0868ac;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14161a; --fg: #e8eaed; --muted: #9aa0a6;
+      --panel: rgba(24,27,31,.92); --line: #33373c; --accent: #6bb5e0;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #map { position: absolute; inset: 0; }
+  .panel {
+    position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 2;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 16px; backdrop-filter: blur(8px);
+    box-shadow: 0 6px 24px rgba(0,0,0,.12);
+  }
+  @media (min-width: 720px) { .panel { left: 16px; right: auto; width: 620px; } }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .row + .row { margin-top: 10px; }
+  h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .muted { color: var(--muted); font-size: 12px; }
+  select, button { font: inherit; color: var(--fg); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; }
+  select { flex: 1 1 200px; min-width: 0; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; }
+  button { cursor: pointer; min-width: 84px; }
+  button:hover { border-color: var(--accent); }
+  input[type=range] { flex: 1 1 200px; min-width: 160px; accent-color: var(--accent); }
+  time { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 96px; }
+  .ramp { height: 10px; border-radius: 5px; flex: 1 1 140px; min-width: 120px;
+    border: 1px solid var(--line); }
+  .err { color: #b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .err { color: #f2b8b5; }
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="panel">
+  <div class="row">
+    <h1 id="title">loading</h1>
+    <span class="muted" id="sub"></span>
+  </div>
+  <div class="row">
+    <select id="collection"></select>
+    <button id="play">play</button>
+    <time id="stamp">—</time>
+  </div>
+  <div class="row">
+    <input type="range" id="slider" min="0" max="0" value="0">
+  </div>
+  <div class="row">
+    <span class="muted" id="lo">—</span>
+    <span class="ramp" id="ramp"></span>
+    <span class="muted" id="hi">—</span>
+    <span class="muted" id="status"></span>
+  </div>
+</div>
+<script type="module">
+// MapLibre v6 ships ESM only: there is no UMD bundle and no default export, and
+// the worker is a separate file the library cannot find by itself. Without
+// setWorkerUrl the map renders the background and never requests a tile.
+import { Map, NavigationControl, setWorkerUrl }
+  from "https://unpkg.com/maplibre-gl@6.10.0/dist/maplibre-gl.mjs";
+setWorkerUrl("https://unpkg.com/maplibre-gl@6.10.0/dist/maplibre-gl-worker.mjs");
+
+const API = location.origin;
+const el = (id) => document.getElementById(id);
+let times = [], current = 0, timer = null, shortId = "AGERA5-PF";
+
+const map = new Map({
+  container: "map",
+  style: "https://demotiles.maplibre.org/style.json",
+  center: [20, 15], zoom: 1.4, maxZoom: 8,
+});
+map.addControl(new NavigationControl(), "top-right");
+
+const tileUrl = (t) => `${API}/tiles/${shortId}/${t}/{z}/{x}/{y}.png`;
+
+function setFrame(i) {
+  if (!times.length) return;
+  current = Math.max(0, Math.min(times.length - 1, i));
+  const t = times[current];
+  el("stamp").textContent = t;
+  el("slider").value = current;
+  const src = map.getSource("ferspas");
+  if (src) src.setTiles([tileUrl(t)]);
+}
+
+function ensureLayer() {
+  if (map.getLayer("ferspas")) map.removeLayer("ferspas");
+  if (map.getSource("ferspas")) map.removeSource("ferspas");
+  map.addSource("ferspas", {
+    type: "raster", tiles: [tileUrl(times[current])], tileSize: 256,
+    minzoom: 0, maxzoom: 8, bounds: [-180, -85, 180, 85],
+  });
+  map.addLayer({ id: "ferspas", type: "raster", source: "ferspas",
+    paint: { "raster-opacity": 0.85 } });
+}
+
+function paintRamp(colormap, lo, hi) {
+  if (!colormap) { el("ramp").style.background = "transparent"; return; }
+  const stops = [];
+  for (let i = 0; i <= 10; i++) {
+    const c = colormap[Math.round(i * 25.5)];
+    if (c) stops.push(`rgba(${c[0]},${c[1]},${c[2]},${(c[3] ?? 255) / 255}) ${i * 10}%`);
+  }
+  el("ramp").style.background = `linear-gradient(90deg, ${stops.join(",")})`;
+  el("lo").textContent = lo; el("hi").textContent = hi;
+}
+
+async function loadCollection(id) {
+  shortId = id;
+  el("status").textContent = "loading index";
+  const meta = await (await fetch(`${API}/collections/${id}/timestamps`)).json();
+  times = meta.timestamps;
+  el("title").textContent = meta.title;
+  el("sub").textContent =
+    `${meta.unit ?? ""} · ${meta.count.toLocaleString()} frames · ${meta.first} – ${meta.last}`;
+  el("slider").max = times.length - 1;
+  current = times.length - 1;
+  const [lo, hi] = meta.rescale ?? [null, null];
+  const style = await (await fetch(
+    `${API}/collections/${id}/${times[current]}/tilejson.json`)).json();
+  el("status").textContent = "";
+  ensureLayer();
+  setFrame(current);
+  // the colormap lives on the server; ask for it through a tiny endpoint
+  const cm = await (await fetch(`${API}/collections/${id}/colormap`)).json();
+  paintRamp(cm.colormap, lo ?? "", (hi ?? "") + " " + (meta.unit ?? ""));
+  void style;
+}
+
+el("slider").addEventListener("input", (e) => setFrame(+e.target.value));
+
+el("play").addEventListener("click", () => {
+  if (timer) { clearInterval(timer); timer = null; el("play").textContent = "play"; return; }
+  el("play").textContent = "pause";
+  timer = setInterval(() => setFrame(current + 1 >= times.length ? 0 : current + 1), 900);
+});
+
+map.on("load", async () => {
+  const list = await (await fetch(`${API}/collections?limit=40`)).json();
+  const sel = el("collection");
+  for (const c of list.collections) {
+    const o = document.createElement("option");
+    o.value = c.short_id;
+    o.textContent = `${c.short_id} — ${c.title ?? ""} (${c.frames})`;
+    sel.appendChild(o);
+  }
+  sel.value = shortId;
+  sel.addEventListener("change", (e) => loadCollection(e.target.value));
+  try { await loadCollection(shortId); }
+  catch (err) { el("status").innerHTML = `<span class="err">${err}</span>`; }
+});
+</script>
+</body>
+</html>
