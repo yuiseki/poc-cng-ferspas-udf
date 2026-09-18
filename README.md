@@ -61,6 +61,57 @@ GET /tiles/AGERA5-PF/         │ ferspas-tile (FastAPI)                 │
                               └────────────────────────────────────────┘
 ```
 
+## Named analyses
+
+A tile does not have to be a stored pixel. Each entry in `analysis.py` is an id,
+the collections it reads, its parameters and how its output is coloured, and the
+server turns it into a tile endpoint:
+
+```
+GET /analysis/{analysis_id}/{time}/{z}/{x}/{y}.png
+```
+
+The FAO demo notebooks each hard-coded one calculation over files on one laptop
+and the calculation stayed trapped there. Here it is a registry entry, so adding
+one is adding an entry rather than an endpoint.
+
+| id | question | reads | unit |
+| --- | --- | --- | --- |
+| `water-balance` | Is this place gaining or losing water today? | PF, ET0 | mm/day |
+| `aridity` | Can rain alone meet the atmospheric demand here? | PF, ET0 | ratio |
+| `gdd` | How much heat did a crop get today? | TMAX, TMIN | degree-days |
+| `diurnal-range` | How far did the temperature swing today? | TMAX, TMIN | K |
+| `change` | How does today compare with a year ago? | PF twice | same as input |
+
+Why these, for a reader who does not do agronomy:
+
+- **Water balance** is rain minus what the atmosphere can evaporate. Positive
+  means water is accumulating, negative means a crop is drawing on soil moisture
+  or irrigation. It is the everyday agrometeorological view of wet and dry, and
+  it needs two variables at once, which is exactly what a single-collection tile
+  server cannot do.
+- **Aridity** is the same pair as a ratio, so a cool wet place and a hot wet one
+  are comparable. Below about 0.5 rain cannot meet crop demand.
+- **Growing degree days** is the unit crop development is counted in: crops
+  advance on accumulated warmth, not on calendar days. Base 10 C suits maize,
+  0 C suits wheat, hence the parameter.
+- **Diurnal range** is a cheap proxy for clear dry air against cloud or humidity.
+- **Change** is the generalised form of what Case5 of the FAO notebooks did by
+  indexing a sorted file list, which quietly compares different years if a file
+  appears.
+
+Parameters ride as query strings: `?base_c=0` for a wheat-based GDD,
+`?offset_days=-3650` to compare with ten years ago.
+
+All the AgERA5 variables share one 0.1 degree EPSG:4326 grid, verified before
+this was built, so reading the same tile from several of them gives arrays that
+line up pixel for pixel with no warping.
+
+FERSPAS already publishes some derived layers of its own, including CHIRPS
+precipitation anomaly and Z-score. An analysis is worth adding here when it
+combines collections that upstream does not combine, not when it duplicates a
+layer that already exists.
+
 ## Endpoints
 
 | Path | Description |
@@ -70,6 +121,9 @@ GET /tiles/AGERA5-PF/         │ ferspas-tile (FastAPI)                 │
 | `GET /collections/{short_id}/colormap` | the collection's own colour ramp, for a legend |
 | `GET /collections/{short_id}/{time}/tilejson.json` | TileJSON for one instant |
 | `GET /tiles/{short_id}/{time}/{z}/{x}/{y}.png` | the tile |
+| `GET /analysis` | the registry |
+| `GET /analysis/{id}` | one analysis, its parameters and its time range |
+| `GET /analysis/{id}/{time}/{z}/{x}/{y}.png` | a computed tile |
 | `GET /viewer` | MapLibre viewer with a time slider |
 
 Collections split by a categorical datacube dimension are pinned with query
@@ -112,6 +166,22 @@ exported by conda point at a PROJ database older than the one in rasterio's
 wheel, and `CRS.from_epsg(3857)` fails at import time with
 `DATABASE.LAYOUT.VERSION.MINOR = 4 whereas a number >= 6 is expected`. The
 server drops those variables before importing rasterio.
+
+**An analysis costs about as much as its slowest input.** Cold, a two-input tile
+took 6.3 s when the inputs were opened one after the other and 3.4 s when they
+were opened in parallel; warm it is 20 ms. Nearly all of the cold time is the
+TLS handshake and header read per COG, not the arithmetic.
+
+**Reading inputs in parallel broke the index cache, quietly.** The DuckDB
+connection was shared across threads, and two concurrent queries on one
+connection returned no rows. That surfaced as a 404 reading exactly like "this
+date has no data", intermittently. Every query now takes its own cursor and the
+memo dicts sit behind a lock.
+
+**Lazy indexes put the whole cost on the first visitor.** Each index is one
+DuckDB query against the 9.4 MB remote parquet, about six seconds; five analyses
+requested together just after boot took 55 s each. The server now warms the
+indexes the registry names at startup, and a cold date costs about 4 s.
 
 **MapLibre v6 has no UMD build.** It is ESM only, has no default export, and
 ships its worker as a separate file. Without `setWorkerUrl` the viewer renders

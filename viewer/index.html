@@ -55,6 +55,7 @@
     <span class="muted" id="sub"></span>
   </div>
   <div class="row">
+    <select id="mode"></select>
     <select id="collection"></select>
     <button id="play">play</button>
     <time id="stamp">—</time>
@@ -88,7 +89,12 @@ const map = new Map({
 });
 map.addControl(new NavigationControl(), "top-right");
 
-const tileUrl = (t) => `${API}/tiles/${shortId}/${t}/{z}/{x}/{y}.png`;
+let mode = "value";   // "value" or an analysis id
+let analyses = {};
+
+const tileUrl = (t) => mode === "value"
+  ? `${API}/tiles/${shortId}/${t}/{z}/{x}/{y}.png`
+  : `${API}/analysis/${mode}/${t}/{z}/{x}/{y}.png`;
 
 function setFrame(i) {
   if (!times.length) return;
@@ -125,22 +131,37 @@ function paintRamp(colormap, lo, hi) {
 async function loadCollection(id) {
   shortId = id;
   el("status").textContent = "loading index";
-  const meta = await (await fetch(`${API}/collections/${id}/timestamps`)).json();
+  // An analysis names its own inputs, so the time axis comes from the first of
+  // them rather than from whatever collection the picker happens to show.
+  const axis = mode === "value" ? id : analyses[mode].inputs[0].collection;
+  const meta = await (await fetch(`${API}/collections/${axis}/timestamps`)).json();
   times = meta.timestamps;
-  el("title").textContent = meta.title;
-  el("sub").textContent =
-    `${meta.unit ?? ""} · ${meta.count.toLocaleString()} frames · ${meta.first} – ${meta.last}`;
+  const a = mode === "value" ? null : analyses[mode];
+  el("title").textContent = a ? a.title : meta.title;
+  el("sub").textContent = a
+    ? `${a.unit} · ${a.question}`
+    : `${meta.unit ?? ""} · ${meta.count.toLocaleString()} frames · ${meta.first} – ${meta.last}`;
   el("slider").max = times.length - 1;
   current = times.length - 1;
-  const [lo, hi] = meta.rescale ?? [null, null];
+  const [lo, hi] = a ? a.rescale : (meta.rescale ?? [null, null]);
   const style = await (await fetch(
     `${API}/collections/${id}/${times[current]}/tilejson.json`)).json();
   el("status").textContent = "";
   ensureLayer();
   setFrame(current);
-  // the colormap lives on the server; ask for it through a tiny endpoint
-  const cm = await (await fetch(`${API}/collections/${id}/colormap`)).json();
-  paintRamp(cm.colormap, lo ?? "", (hi ?? "") + " " + (meta.unit ?? ""));
+  if (a) {
+    // Analyses use a named rio-tiler ramp rather than the collection's own.
+    const ramp = a.colormap === "rdbu"
+      ? ["#67001f", "#f7f7f7", "#053061"]
+      : ["#000004", "#b5367a", "#fcfdbf"];
+    el("ramp").style.background = `linear-gradient(90deg, ${ramp.join(",")})`;
+    el("lo").textContent = lo; el("hi").textContent = `${hi} ${a.unit}`;
+    el("collection").disabled = true;
+  } else {
+    el("collection").disabled = false;
+    const cm = await (await fetch(`${API}/collections/${id}/colormap`)).json();
+    paintRamp(cm.colormap, lo ?? "", (hi ?? "") + " " + (meta.unit ?? ""));
+  }
   void style;
 }
 
@@ -153,6 +174,22 @@ el("play").addEventListener("click", () => {
 });
 
 map.on("load", async () => {
+  const reg = await (await fetch(`${API}/analysis`)).json();
+  const modeSel = el("mode");
+  const plain = document.createElement("option");
+  plain.value = "value"; plain.textContent = "raw value";
+  modeSel.appendChild(plain);
+  for (const a of reg.analyses) {
+    analyses[a.id] = a;
+    const o = document.createElement("option");
+    o.value = a.id; o.textContent = a.title;
+    modeSel.appendChild(o);
+  }
+  modeSel.addEventListener("change", async (e) => {
+    mode = e.target.value;
+    await loadCollection(shortId);
+  });
+
   const list = await (await fetch(`${API}/collections?limit=40`)).json();
   const sel = el("collection");
   for (const c of list.collections) {
