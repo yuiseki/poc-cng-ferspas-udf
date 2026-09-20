@@ -100,6 +100,32 @@ Why these, for a reader who does not do agronomy:
   indexing a sorted file list, which quietly compares different years if a file
   appears.
 
+### Colour is a contract
+
+A reader who learns one of these maps should be able to read the next one, so
+the ramp is not a per-analysis decision. There are two, and one rule.
+
+| scale | ramp | meaning |
+| --- | --- | --- |
+| `diverging` | RdBu | blue above the neutral value, red below, white at it |
+| `sequential` | viridis | dark is the low end, bright the high end |
+
+A diverging scale must declare its neutral value and its displayed range must
+be symmetric around it, or the colour a reader takes as neutral lands somewhere
+that means nothing. The constructor refuses the analysis otherwise, and a test
+checks every registered one. `water-balance` and `change` are symmetric around
+zero; `aridity` around one, where rain exactly equals demand.
+
+Hue encodes direction, never judgement. Red is not "bad": less rain than last
+year is a problem in a drought and a relief in a flood, and a tile server does
+not know which. Anything evaluative belongs in the legend text. Every analysis
+carries a `reading` line saying what its colours mean, which the viewer shows
+next to the ramp.
+
+This was got wrong first: `gdd` used inferno and `diurnal-range` used magma,
+two different sequential ramps chosen for no reason, so the same brightness
+meant different things on maps a reader would flip between.
+
 Parameters ride as query strings: `?base_c=0` for a wheat-based GDD,
 `?offset_days=-3650` to compare with ten years ago.
 

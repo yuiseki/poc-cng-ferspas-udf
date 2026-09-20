@@ -77,3 +77,75 @@ def test_shift_moves_a_date_by_whole_days():
     assert shift("2026-03-01", -1) == "2026-02-28"
     assert shift("2026-01-01", -365) == "2025-01-01"
     assert shift("2026-08-01", 0) == "2026-08-01"
+
+
+# -- the colour contract ---------------------------------------------------
+
+
+def test_only_two_ramps_are_ever_used():
+    """A reader who learns one map should be able to read the next one."""
+    from ferspas_tile.analysis import RAMPS
+
+    used = {spec.colormap_name for spec in REGISTRY.values()}
+    assert used <= set(RAMPS.values())
+    assert len(used) <= 2
+
+
+def test_a_diverging_scale_is_symmetric_around_its_neutral():
+    from ferspas_tile.analysis import DIVERGING
+
+    for spec in REGISTRY.values():
+        if spec.scale != DIVERGING:
+            continue
+        low, high = spec.rescale
+        assert spec.neutral is not None, spec.id
+        assert (spec.neutral - low) == pytest.approx(high - spec.neutral), spec.id
+
+
+def test_a_sequential_scale_starts_at_its_low_end_and_has_no_neutral():
+    from ferspas_tile.analysis import SEQUENTIAL
+
+    for spec in REGISTRY.values():
+        if spec.scale == SEQUENTIAL:
+            assert spec.neutral is None, spec.id
+
+
+def test_an_asymmetric_diverging_scale_is_refused():
+    from ferspas_tile.analysis import DIVERGING, Analysis, Input
+
+    with pytest.raises(ValueError, match="not symmetric"):
+        Analysis(
+            id="bad",
+            title="bad",
+            question="?",
+            unit="x",
+            inputs=(Input("A"),),
+            compute=lambda stack, params: stack["value"],
+            rescale=(-1.0, 10.0),
+            scale=DIVERGING,
+            neutral=0.0,
+        )
+
+
+def test_a_diverging_scale_without_a_neutral_is_refused():
+    from ferspas_tile.analysis import DIVERGING, Analysis, Input
+
+    with pytest.raises(ValueError, match="needs a neutral"):
+        Analysis(
+            id="bad",
+            title="bad",
+            question="?",
+            unit="x",
+            inputs=(Input("A"),),
+            compute=lambda stack, params: stack["value"],
+            rescale=(-1.0, 1.0),
+            scale=DIVERGING,
+        )
+
+
+def test_every_analysis_states_how_to_read_its_colours():
+    for spec in REGISTRY.values():
+        reading = spec.reading()
+        assert spec.unit in reading, spec.id
+        # the words describe direction, never a verdict
+        assert not any(word in reading.lower() for word in ("good", "bad")), spec.id

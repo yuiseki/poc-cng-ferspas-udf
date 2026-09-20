@@ -146,18 +146,20 @@ async function loadCollection(id) {
   const [lo, hi] = a ? a.rescale : (meta.rescale ?? [null, null]);
   const style = await (await fetch(
     `${API}/collections/${id}/${times[current]}/tilejson.json`)).json();
-  el("status").textContent = "";
   ensureLayer();
   setFrame(current);
   if (a) {
-    // Analyses use a named rio-tiler ramp rather than the collection's own.
-    const ramp = a.colormap === "rdbu"
-      ? ["#67001f", "#f7f7f7", "#053061"]
-      : ["#000004", "#b5367a", "#fcfdbf"];
+    // Two ramps only, chosen by the analysis's scale kind, so the same colour
+    // means the same thing on every analysis. See analysis.py.
+    const ramp = a.scale === "diverging"
+      ? ["#67001f", "#f7f7f7", "#053061"]   // red below neutral, blue above
+      : ["#440154", "#21918c", "#fde725"];  // viridis: dark low, bright high
     el("ramp").style.background = `linear-gradient(90deg, ${ramp.join(",")})`;
     el("lo").textContent = lo; el("hi").textContent = `${hi} ${a.unit}`;
+    el("status").textContent = a.reading;
     el("collection").disabled = true;
   } else {
+    el("status").textContent = "";
     el("collection").disabled = false;
     const cm = await (await fetch(`${API}/collections/${id}/colormap`)).json();
     paintRamp(cm.colormap, lo ?? "", (hi ?? "") + " " + (meta.unit ?? ""));
