@@ -218,6 +218,14 @@ The index lists every analysis with the question it answers, its inputs, its
 colour ramp and how to read it, then the raw collections with the longest time
 series. Each entry links to its own map.
 
+Left and right step through time from anywhere on the page, and the slider
+takes keyboard focus as usual. Two things compete for those keys: the range
+input handles them natively when focused, so that case is left alone rather
+than stepping twice, and MapLibre pans the map with them once the canvas has
+focus, so the handler listens in the capture phase and stops the event. After
+clicking the map to look at something, the arrows still move time rather than
+the map. Any hand on the slider, by drag or by key, stops playback.
+
 Every map is its own URL, so one can be sent to someone:
 `/viewer/analysis/water-balance` rather than a page plus instructions about
 which item to pick from a dropdown. The map page reads its target out of the

@@ -42,6 +42,7 @@
   time { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 96px; }
   .ramp { height: 10px; border-radius: 5px; flex: 1 1 140px; min-width: 120px;
     border: 1px solid var(--line); }
+  .hint { font-size: 12px; color: var(--muted); }
   .why { margin: 0; font-size: 13px; color: var(--muted); }
   .err { color: #b3261e; }
   @media (prefers-color-scheme: dark) {
@@ -60,6 +61,7 @@
     <a class="back" href="/">&larr; Return to index</a>
     <button id="play">play</button>
     <time id="stamp">&mdash;</time>
+    <span class="hint">&larr; &rarr; to step</span>
   </div>
   <div class="row">
     <input type="range" id="slider" min="0" max="0" value="0">
@@ -101,6 +103,8 @@ const map = new Map({
   center: [20, 15], zoom: 1.4, maxZoom: 8,
 });
 map.addControl(new NavigationControl(), "top-right");
+// Reachable from a console or a browser test; nothing in the page reads it.
+window.map = map;
 
 const tileUrl = (t) => isAnalysis
   ? `${API}/analysis/${target}/${t}/{z}/{x}/{y}.png`
@@ -148,10 +152,42 @@ function paintAnalysisRamp(a) {
   el("status").textContent = a.reading;
 }
 
-el("slider").addEventListener("input", (e) => setFrame(+e.target.value));
+function stopPlaying() {
+  if (!timer) return;
+  clearInterval(timer);
+  timer = null;
+  el("play").textContent = "play";
+}
+
+// Left and right step through time from anywhere on the page.
+//
+// Two things are competing for these keys. The range input handles them
+// natively when it has focus, so that case is left alone rather than stepping
+// twice. MapLibre pans the map with them once the canvas has focus, which is
+// why this listens in the capture phase and stops the event: after clicking the
+// map to look at something, the arrows should still move time.
+// Any hand on the slider stops playback, whether it was dragged or moved with
+// the arrows while focused. Setting the value from the timer does not fire
+// this, so there is no loop.
+el("slider").addEventListener("input", (e) => {
+  stopPlaying();
+  setFrame(+e.target.value);
+});
+
+window.addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "select" || tag === "textarea") return;
+
+  e.preventDefault();
+  e.stopPropagation();
+  stopPlaying();
+  setFrame(current + (e.key === "ArrowRight" ? 1 : -1));
+}, true);
 
 el("play").addEventListener("click", () => {
-  if (timer) { clearInterval(timer); timer = null; el("play").textContent = "play"; return; }
+  if (timer) { stopPlaying(); return; }
   el("play").textContent = "pause";
   timer = setInterval(() => setFrame(current + 1 >= times.length ? 0 : current + 1), 900);
 });
