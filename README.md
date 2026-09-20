@@ -63,17 +63,41 @@ GET /tiles/AGERA5-PF/         │ ferspas-tile (FastAPI)                 │
 
 ## Named analyses
 
-A tile does not have to be a stored pixel. Each entry in `analysis.py` is an id,
-the collections it reads, its parameters and how its output is coloured, and the
-server turns it into a tile endpoint:
+A tile does not have to be a stored pixel. Each analysis is one file, named
+after its id, declaring the collections it reads, its parameters and how its
+output is coloured. The server turns it into a tile endpoint:
 
 ```
 GET /analysis/{analysis_id}/{time}/{z}/{x}/{y}.png
 ```
 
+```
+src/ferspas_tile/
+  analysis.py              the vocabulary: Input, Parameter, Analysis, the two scales
+  functions/
+    __init__.py            loads every sibling file, at import
+    water-balance.py       -> /analysis/water-balance/...
+    aridity.py
+    gdd.py
+    diurnal-range.py
+    change.py
+```
+
+Adding an analysis is adding a file. It defines a `compute` function and an
+`ANALYSIS`, and the loader picks it up; nothing registers it by hand. The
+filename has to equal the id it declares, or loading fails, so a reader looking
+for `water-balance` finds `water-balance.py`.
+
+Ids contain hyphens, which no Python import statement accepts, so the files are
+loaded from their paths rather than imported. That is the price of "the
+filename is the id" and it seems worth paying.
+
+A file that will not parse, or declares no `ANALYSIS`, or breaks the colour
+contract, stops the server at import. None of those may turn into an analysis
+that quietly is not there.
+
 The FAO demo notebooks each hard-coded one calculation over files on one laptop
-and the calculation stayed trapped there. Here it is a registry entry, so adding
-one is adding an entry rather than an endpoint.
+and the calculation stayed trapped there. Here it is a file.
 
 | id | question | reads | unit |
 | --- | --- | --- | --- |
@@ -125,6 +149,12 @@ next to the ramp.
 This was got wrong first: `gdd` used inferno and `diurnal-range` used magma,
 two different sequential ramps chosen for no reason, so the same brightness
 meant different things on maps a reader would flip between.
+
+The contract covers analyses, not raw values. `/tiles/...` renders a collection
+with the colormap FERSPAS itself publishes in its `renders` block, so a raw
+layer looks the way FAO draws it. That is the point of serving it: it is their
+data and their cartography. The two ramps above are for numbers this server
+computed, which upstream has no opinion about.
 
 Parameters ride as query strings: `?base_c=0` for a wheat-based GDD,
 `?offset_days=-3650` to compare with ten years ago.

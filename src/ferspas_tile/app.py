@@ -33,7 +33,8 @@ from rio_tiler.colormap import cmap as default_colormaps  # noqa: E402
 from rio_tiler.models import ImageData  # noqa: E402
 
 from . import ITEMS_PARQUET, __version__  # noqa: E402
-from .analysis import REGISTRY, Analysis, shift  # noqa: E402
+from .analysis import Analysis, shift  # noqa: E402
+from .functions import REGISTRY  # noqa: E402
 from .index import CollectionIndex, load_index, public_collections  # noqa: E402
 from .render import RenderSpec, fetch_spec  # noqa: E402
 

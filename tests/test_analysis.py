@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 
-from ferspas_tile.analysis import KELVIN, REGISTRY, shift
+from ferspas_tile.analysis import KELVIN, shift
+from ferspas_tile.functions import REGISTRY
 
 
 def arr(*values):
