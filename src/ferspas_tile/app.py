@@ -16,13 +16,19 @@ configure_gdal()  # must happen before rasterio is imported
 
 import logging  # noqa: E402
 import threading  # noqa: E402
+from collections.abc import AsyncIterator  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 from typing import Any  # noqa: E402
 
 import duckdb  # noqa: E402
 from fastapi import FastAPI, HTTPException, Query, Response  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import FileResponse  # noqa: E402
+from fastapi.responses import (  # noqa: E402
+    FileResponse,
+    HTMLResponse,
+    RedirectResponse,
+)
 from pathlib import Path  # noqa: E402
 from rio_tiler.errors import TileOutsideBounds  # noqa: E402
 from rio_tiler.io import Reader  # noqa: E402
@@ -42,13 +48,6 @@ logger = logging.getLogger("ferspas_tile")
 
 VIEWER = Path(__file__).resolve().parent.parent.parent / "viewer"
 
-app = FastAPI(title="ferspas-tile", version=__version__)
-app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"]
-)
-
-# short_id -> index, built once per collection and kept for the process.
-#
 # An analysis reads its inputs in parallel, so these caches and the DuckDB
 # connection are touched from several threads at once. A DuckDB connection is
 # not safe to share that way: two concurrent queries on one connection returned
@@ -114,7 +113,6 @@ def _dims(season: str | None, lct: str | None, crop: str | None) -> dict[str, st
     return {k: v for k, v in pinned.items() if v}
 
 
-@app.on_event("startup")
 def warm_indexes() -> None:
     """Build the index for every collection the registry names, up front.
 
@@ -140,8 +138,29 @@ def warm_indexes() -> None:
     logger.info("warmed %d collection indexes", len(wanted))
 
 
-@app.get("/")
-def root() -> dict[str, Any]:
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    warm_indexes()
+    yield
+
+
+app = FastAPI(title="ferspas-tile", version=__version__, lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"]
+)
+
+# short_id -> index, built once per collection and kept for the process.
+#
+
+
+@app.get("/", response_class=HTMLResponse)
+def home() -> FileResponse:
+    """The index: every function, with what it answers and a link to its map."""
+    return FileResponse(VIEWER / "home.html", media_type="text/html")
+
+
+@app.get("/service.json")
+def service() -> dict[str, Any]:
     return {
         "service": "ferspas-tile",
         "version": __version__,
@@ -151,11 +170,15 @@ def root() -> dict[str, Any]:
         ),
         "index": ITEMS_PARQUET,
         "endpoints": {
+            "index": "/",
             "collections": "/collections",
             "timestamps": "/collections/{short_id}/timestamps",
             "tilejson": "/collections/{short_id}/{time}/tilejson.json",
             "tile": "/tiles/{short_id}/{time}/{z}/{x}/{y}.png",
-            "viewer": "/viewer",
+            "analyses": "/analysis",
+            "analysis_tile": "/analysis/{id}/{time}/{z}/{x}/{y}.png",
+            "analysis_viewer": "/viewer/analysis/{id}",
+            "collection_viewer": "/viewer/collection/{short_id}",
         },
     }
 
@@ -398,6 +421,26 @@ def analysis_tile(
     )
 
 
+# -- viewers ---------------------------------------------------------------
+#
+# One page per function rather than one page with a picker: a map of a named
+# thing should have a URL you can send someone. Both routes serve the same
+# file, which reads its target out of the path.
+
+
+@app.get("/viewer/analysis/{analysis_id}", response_class=HTMLResponse)
+def analysis_viewer(analysis_id: str) -> FileResponse:
+    if analysis_id not in REGISTRY:
+        raise HTTPException(404, f"unknown analysis: {analysis_id}")
+    return FileResponse(VIEWER / "map.html", media_type="text/html")
+
+
+@app.get("/viewer/collection/{short_id}", response_class=HTMLResponse)
+def collection_viewer(short_id: str) -> FileResponse:
+    _collection_id(short_id)  # 404 here rather than in the browser
+    return FileResponse(VIEWER / "map.html", media_type="text/html")
+
+
 @app.get("/viewer")
-def viewer() -> FileResponse:
-    return FileResponse(VIEWER / "index.html", media_type="text/html")
+def viewer_redirect() -> RedirectResponse:
+    return RedirectResponse("/", status_code=308)

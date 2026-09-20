@@ -180,7 +180,10 @@ layer that already exists.
 | `GET /analysis` | the registry |
 | `GET /analysis/{id}` | one analysis, its parameters and its time range |
 | `GET /analysis/{id}/{time}/{z}/{x}/{y}.png` | a computed tile |
-| `GET /viewer` | MapLibre viewer with a time slider |
+| `GET /` | the index: every function with what it answers |
+| `GET /service.json` | the same thing for a machine |
+| `GET /viewer/analysis/{id}` | map of one analysis |
+| `GET /viewer/collection/{short_id}` | map of one raw collection |
 
 Collections split by a categorical datacube dimension are pinned with query
 parameters: `?season=GS1&lct=LC-C`. Without them such a collection has more than
@@ -191,8 +194,18 @@ one COG per instant, and the server says so instead of picking one.
 ```bash
 make install
 make serve
-open http://127.0.0.1:8811/viewer
+open http://127.0.0.1:8811/
 ```
+
+The index lists every analysis with the question it answers, its inputs, its
+colour ramp and how to read it, then the raw collections with the longest time
+series. Each entry links to its own map.
+
+Every map is its own URL, so one can be sent to someone:
+`/viewer/analysis/water-balance` rather than a page plus instructions about
+which item to pick from a dropdown. The map page reads its target out of the
+path and carries a link back to the index. An id that does not exist is a 404
+from the server rather than a page that loads and then fails in the browser.
 
 ## What was measured
 

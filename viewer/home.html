@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ferspas-tile</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1c1e; --muted: #5d6165;
+    --card: #ffffff; --line: #d6d9dc; --accent: #0868ac; --chip: #eef1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14161a; --fg: #e8eaed; --muted: #9aa0a6;
+      --card: #1b1e22; --line: #33373c; --accent: #6bb5e0; --chip: #23272c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 40px 16px 72px; }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -.01em; }
+  h2 { font-size: 17px; margin: 40px 0 4px; }
+  p { margin: 0 0 14px; color: var(--muted); }
+  p.lead { color: var(--fg); }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .88em;
+    background: var(--chip); padding: 1px 5px; border-radius: 4px; }
+  a { color: var(--accent); }
+  .cards { display: grid; gap: 12px; margin-top: 14px; }
+  @media (min-width: 680px) { .cards { grid-template-columns: 1fr 1fr; } }
+  .card { display: block; text-decoration: none; color: inherit;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 18px; transition: border-color .15s, transform .15s; }
+  .card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .card h3 { margin: 0 0 4px; font-size: 16px; }
+  .card .q { color: var(--fg); margin: 0 0 10px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 2px 9px;
+    font-size: 12px; color: var(--muted); }
+  .reading { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
+  .ramp { height: 8px; border-radius: 4px; margin-top: 10px; border: 1px solid var(--line); }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase;
+    letter-spacing: .04em; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--line);
+    font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ferspas-tile</h1>
+  <p class="lead">XYZ tiles with a time axis, read on the fly from
+    <a href="https://data.apps.fao.org/remote-sensing-portal/">FAO FERSPAS</a>
+    Cloud Optimized GeoTIFFs. Nothing is pre-built; a tile is computed when it
+    is asked for.</p>
+  <p>Tile URLs carry the instant as well as the tile index:
+    <code>/analysis/{id}/{time}/{z}/{x}/{y}.png</code></p>
+
+  <h2>Analyses</h2>
+  <p>Each one is a file in <code>functions/</code> named after its id. They
+    combine collections the upstream API does not combine.</p>
+  <div class="cards" id="analyses"></div>
+
+  <h2>Raw collections</h2>
+  <p>The values as FERSPAS publishes them, drawn with FAO's own colour ramp for
+    that collection. Longest time series first;
+    <a href="/collections?limit=200">the full list is here</a>.</p>
+  <table>
+    <thead><tr><th>collection</th><th>what it is</th><th>unit</th><th class="n">frames</th></tr></thead>
+    <tbody id="collections"></tbody>
+  </table>
+
+  <footer>
+    Machine-readable service description:
+    <a href="/service.json">/service.json</a> ·
+    registry: <a href="/analysis">/analysis</a> ·
+    index: <a href="https://stac.yuiseki.net/fao-ferspas/">fao-ferspas</a>
+  </footer>
+</div>
+<script type="module">
+const el = (id) => document.getElementById(id);
+
+const RAMPS = {
+  diverging: ["#67001f", "#f7f7f7", "#053061"],
+  sequential: ["#440154", "#21918c", "#fde725"],
+};
+
+function card(a) {
+  const node = document.createElement("a");
+  node.className = "card";
+  node.href = `/viewer/analysis/${a.id}`;
+  const inputs = a.inputs.map((i) => i.collection).join(" + ");
+  node.innerHTML = `
+    <h3>${a.title}</h3>
+    <p class="q">${a.question}</p>
+    <div class="meta">
+      <span class="chip">${a.id}</span>
+      <span class="chip">${a.unit}</span>
+      <span class="chip">${inputs}</span>
+    </div>
+    <div class="ramp"></div>
+    <p class="reading">${a.reading}</p>`;
+  node.querySelector(".ramp").style.background =
+    `linear-gradient(90deg, ${RAMPS[a.scale].join(",")})`;
+  return node;
+}
+
+const reg = await (await fetch("/analysis")).json();
+for (const a of reg.analyses) el("analyses").appendChild(card(a));
+
+const list = await (await fetch("/collections?limit=30")).json();
+for (const c of list.collections) {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td><a href="/viewer/collection/${c.short_id}">${c.short_id}</a></td>
+    <td>${(c.title ?? "").replace(/ \(Global.*$/, "")}</td>
+    <td>${c.unit ?? ""}</td>
+    <td class="n">${c.frames.toLocaleString()}</td>`;
+  el("collections").appendChild(tr);
+}
+</script>
+</body>
+</html>
