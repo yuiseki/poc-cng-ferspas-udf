@@ -77,6 +77,10 @@ class Analysis:
     id: str
     title: str
     question: str
+    # Two or three sentences for someone who does not work in agriculture or
+    # remote sensing: what is being subtracted from what, and what the picture
+    # is for. The question above is the headline; this is the caption.
+    explanation: str
     unit: str
     inputs: tuple[Input, ...]
     compute: Callable[[dict[str, np.ma.MaskedArray], dict[str, Any]], np.ma.MaskedArray]
@@ -90,6 +94,10 @@ class Analysis:
     notes: str = ""
 
     def __post_init__(self) -> None:
+        if len(self.explanation.split()) < 20:
+            raise ValueError(
+                f"{self.id}: the explanation is too short to explain anything"
+            )
         low, high = self.rescale
         if low >= high:
             raise ValueError(f"{self.id}: rescale must increase")
@@ -126,6 +134,7 @@ class Analysis:
             "id": self.id,
             "title": self.title,
             "question": self.question,
+            "explanation": self.explanation,
             "unit": self.unit,
             "inputs": [
                 {"collection": i.short_id, "role": i.role, "offset_days": i.offset_days}

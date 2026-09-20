@@ -11,7 +11,9 @@ def arr(*values):
 
 def run(analysis_id, stack, params=None):
     spec = REGISTRY[analysis_id]
-    defaults = {p.name: p.default for p in spec.parameters}
+    # The server always supplies the instant; a monthly total needs it.
+    defaults = {"time": "2026-07-01"}
+    defaults.update({p.name: p.default for p in spec.parameters})
     defaults.update(params or {})
     return spec.compute(stack, defaults)
 
@@ -26,14 +28,19 @@ def test_every_registered_analysis_describes_itself():
 
 
 def test_water_balance_is_rain_minus_demand():
-    out = run("water-balance", {"precipitation": arr(5.0, 1.0), "reference_et": arr(2.0, 4.0)})
-    assert out.tolist() == [3.0, -3.0]
+    out = run(
+        "water-balance",
+        {"precipitation": arr(120.0, 20.0), "reference_et": arr(40.0, 90.0)},
+    )
+    assert out.tolist() == [80.0, -70.0]
 
 
 def test_aridity_is_a_ratio_and_is_capped():
-    out = run("aridity", {"precipitation": arr(2.0, 100.0), "reference_et": arr(4.0, 1.0)})
+    out = run(
+        "aridity", {"precipitation": arr(50.0, 900.0), "reference_et": arr(100.0, 30.0)}
+    )
     assert out[0] == pytest.approx(0.5)
-    # a wet day would otherwise be 100 and flatten the whole colour range
+    # a monsoon month would otherwise be 30 and flatten the whole colour range
     assert out[1] == pytest.approx(2.0)
 
 
@@ -42,19 +49,33 @@ def test_aridity_masks_rather_than_dividing_by_zero():
     assert np.ma.getmaskarray(out)[0]
 
 
+def test_gdd_accumulates_over_the_month_it_is_asked_for():
+    from ferspas_tile.functions.gdd import days_in_month
+
+    assert days_in_month("2026-07-01") == 31
+    assert days_in_month("2026-02-15") == 28
+    assert days_in_month("2024-02-01") == 29  # a leap year
+
+    stack = {"tmax": arr(20 + KELVIN), "tmin": arr(10 + KELVIN)}   # mean 15 C
+    july = run("gdd", stack, {"time": "2026-07-01"})
+    february = run("gdd", stack, {"time": "2026-02-01"})
+    assert july[0] == pytest.approx(5.0 * 31)
+    assert february[0] == pytest.approx(5.0 * 28)
+
+
 def test_gdd_converts_kelvin_and_never_goes_negative():
-    # 20 C max, 10 C min -> mean 15 C -> 5 degree-days above base 10
+    # 20 C max, 10 C min -> mean 15 C -> 5 degree-days a day above base 10
     warm = run("gdd", {"tmax": arr(20 + KELVIN), "tmin": arr(10 + KELVIN)})
-    assert warm[0] == pytest.approx(5.0)
-    # a freezing day contributes nothing, it does not subtract growth
+    assert warm[0] == pytest.approx(5.0 * 31)
+    # a freezing month contributes nothing, it does not subtract growth
     cold = run("gdd", {"tmax": arr(2 + KELVIN), "tmin": arr(-8 + KELVIN)})
     assert cold[0] == pytest.approx(0.0)
 
 
 def test_gdd_base_temperature_is_a_parameter():
     stack = {"tmax": arr(20 + KELVIN), "tmin": arr(10 + KELVIN)}
-    assert run("gdd", stack, {"base_c": 0.0})[0] == pytest.approx(15.0)
-    assert run("gdd", stack, {"base_c": 10.0})[0] == pytest.approx(5.0)
+    assert run("gdd", stack, {"base_c": 0.0})[0] == pytest.approx(15.0 * 31)
+    assert run("gdd", stack, {"base_c": 10.0})[0] == pytest.approx(5.0 * 31)
 
 
 def test_diurnal_range_is_the_swing():
@@ -63,13 +84,13 @@ def test_diurnal_range_is_the_swing():
 
 
 def test_change_subtracts_the_earlier_frame():
-    out = run("change", {"value": arr(7.0), "earlier": arr(10.0)})
-    assert out[0] == pytest.approx(-3.0)
+    out = run("change", {"value": arr(70.0), "earlier": arr(100.0)})
+    assert out[0] == pytest.approx(-30.0)
 
 
 def test_a_masked_input_pixel_stays_masked_in_the_result():
-    precipitation = np.ma.masked_array([5.0, 5.0], mask=[False, True])
-    out = run("water-balance", {"precipitation": precipitation, "reference_et": arr(1.0, 1.0)})
+    precipitation = np.ma.masked_array([50.0, 50.0], mask=[False, True])
+    out = run("water-balance", {"precipitation": precipitation, "reference_et": arr(10.0, 10.0)})
     assert not np.ma.getmaskarray(out)[0]
     assert np.ma.getmaskarray(out)[1]
 
@@ -119,6 +140,10 @@ def test_an_asymmetric_diverging_scale_is_refused():
             id="bad",
             title="bad",
             question="?",
+            explanation=(
+                "A placeholder explanation that is long enough to satisfy the"
+                " rule that every analysis says what it is for in plain words."
+            ),
             unit="x",
             inputs=(Input("A"),),
             compute=lambda stack, params: stack["value"],
@@ -136,6 +161,10 @@ def test_a_diverging_scale_without_a_neutral_is_refused():
             id="bad",
             title="bad",
             question="?",
+            explanation=(
+                "A placeholder explanation that is long enough to satisfy the"
+                " rule that every analysis says what it is for in plain words."
+            ),
             unit="x",
             inputs=(Input("A"),),
             compute=lambda stack, params: stack["value"],
@@ -150,3 +179,18 @@ def test_every_analysis_states_how_to_read_its_colours():
         assert spec.unit in reading, spec.id
         # the words describe direction, never a verdict
         assert not any(word in reading.lower() for word in ("good", "bad")), spec.id
+
+
+def test_every_analysis_explains_itself_in_plain_words():
+    for spec in REGISTRY.values():
+        words = spec.explanation.split()
+        assert len(words) >= 40, f"{spec.id}: too short to explain anything"
+        assert spec.explanation.strip().endswith("."), spec.id
+
+
+def test_every_analysis_reads_monthly_collections():
+    # Daily is finer than this proof of concept needs, and a monthly aridity
+    # ratio is the interval the index is actually defined over.
+    for spec in REGISTRY.values():
+        for source in spec.inputs:
+            assert source.short_id.endswith("-M"), f"{spec.id} reads {source.short_id}"

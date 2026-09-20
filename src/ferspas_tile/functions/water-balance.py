@@ -1,4 +1,4 @@
-"""Rain minus what the atmosphere can evaporate."""
+"""Rain minus what the sun and wind take back."""
 
 from __future__ import annotations
 
@@ -12,31 +12,33 @@ from ferspas_tile.analysis import DIVERGING, Analysis, Input
 def compute(
     stack: dict[str, np.ma.MaskedArray], params: dict[str, Any]
 ) -> np.ma.MaskedArray:
-    """Positive means water is accumulating.
-
-    Negative means a crop is drawing on soil moisture or irrigation. This is
-    the everyday agrometeorological view of whether a place is wet or dry, and
-    it needs two variables at once, which is exactly what a single-collection
-    tile server cannot do.
-    """
+    """Both inputs are millimetres over the same month, so this subtracts."""
     return stack["precipitation"] - stack["reference_et"]
 
 
 ANALYSIS = Analysis(
     id="water-balance",
-    title="Water balance (P - ET0)",
-    question="Is this place gaining or losing water today?",
-    unit="mm/day",
+    title="Water balance (rain minus evaporation)",
+    question="Did this place gain or lose water this month?",
+    explanation=(
+        "Rain puts water into the ground. Sun and wind take it back out again."
+        " This map subtracts the second from the first. Blue means more water"
+        " arrived than left, so the ground is wetting up. Red means the"
+        " opposite, and anything growing there is living on water stored in the"
+        " soil earlier, or on irrigation. It takes two separate measurements to"
+        " say this, which is why no single layer in the catalogue shows it."
+    ),
+    unit="mm/month",
     inputs=(
-        Input("AGERA5-PF", role="precipitation"),
-        Input("AGERA5-ET0", role="reference_et"),
+        Input("AGERA5-PF-M", role="precipitation"),
+        Input("AGERA5-ET0-M", role="reference_et"),
     ),
     compute=compute,
-    rescale=(-10.0, 10.0),
+    rescale=(-200.0, 200.0),
     scale=DIVERGING,
     neutral=0.0,
     notes=(
-        "Zero is the break-even point: rain exactly matches demand. Two"
-        " collections read at the same instant on the same grid."
+        "Zero is the break-even point: rain exactly matches what the air can"
+        " evaporate. Clipped at 200 mm either way; a monsoon month reaches 400."
     ),
 )

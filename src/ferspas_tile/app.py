@@ -15,6 +15,7 @@ from .config import configure_gdal
 configure_gdal()  # must happen before rasterio is imported
 
 import logging  # noqa: E402
+import os  # noqa: E402
 import threading  # noqa: E402
 from collections.abc import AsyncIterator  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
@@ -39,6 +40,7 @@ from rio_tiler.colormap import cmap as default_colormaps  # noqa: E402
 from rio_tiler.models import ImageData  # noqa: E402
 
 from . import ITEMS_PARQUET, __version__  # noqa: E402
+from .cache import TileCache  # noqa: E402
 from .analysis import Analysis, shift  # noqa: E402
 from .functions import REGISTRY  # noqa: E402
 from .index import CollectionIndex, load_index, public_collections  # noqa: E402
@@ -47,6 +49,14 @@ from .render import RenderSpec, fetch_spec  # noqa: E402
 logger = logging.getLogger("ferspas_tile")
 
 VIEWER = Path(__file__).resolve().parent.parent.parent / "viewer"
+
+# Rendered tiles are immutable: the COGs behind a past month do not change, so
+# the same URL always produces the same bytes. The budget is what keeps this
+# from being a way to fill the disk; both are overridable for a deployment that
+# knows better than the default.
+CACHE_DIR = Path(os.environ.get("FERSPAS_TILE_CACHE", "cache/tiles"))
+CACHE_BYTES = int(os.environ.get("FERSPAS_TILE_CACHE_BYTES", 512 * 1024 * 1024))
+tiles = TileCache(CACHE_DIR, max_bytes=CACHE_BYTES)
 
 # An analysis reads its inputs in parallel, so these caches and the DuckDB
 # connection are touched from several threads at once. A DuckDB connection is
@@ -188,6 +198,12 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/cache")
+def cache_status() -> dict[str, object]:
+    """How much of the tile cache budget is in use."""
+    return tiles.describe()
+
+
 @app.get("/collections")
 def collections(limit: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
     """Collections this server can serve, longest time series first."""
@@ -267,6 +283,15 @@ def tile(
     lct: str | None = None,
     crop: str | None = None,
 ) -> Response:
+    key = f"tile|{short_id}|{season}|{lct}|{crop}|{time}|{z}/{x}/{y}"
+    cached = tiles.get(key)
+    if cached is not None:
+        return Response(
+            cached,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400", "X-Cache": "hit"},
+        )
+
     index = _index(short_id, _dims(season, lct, crop))
     frame = index.frame(time)
     if frame is None:
@@ -291,11 +316,13 @@ def tile(
     if spec.rescale:
         image.rescale(in_range=((spec.rescale[0], spec.rescale[1]),))
     content = image.render(img_format="PNG", colormap=spec.colormap)
+    tiles.put(key, content)
     return Response(
         content,
         media_type="image/png",
         headers={
             "Cache-Control": "public, max-age=86400",
+            "X-Cache": "miss",
             "X-Source-COG": frame.href,
         },
     )
@@ -366,7 +393,26 @@ def analysis_tile(
     spec: Analysis | None = REGISTRY.get(analysis_id)
     if spec is None:
         raise HTTPException(404, f"unknown analysis: {analysis_id}")
-    params: dict[str, Any] = {p.name: p.default for p in spec.parameters}
+
+    # Parameters are part of the key: the same tile with a different base
+    # temperature is a different picture.
+    key = f"analysis|{analysis_id}|{time}|{z}/{x}/{y}|{base_c}|{offset_days}"
+    cached = tiles.get(key)
+    if cached is not None:
+        return Response(
+            cached,
+            media_type="image/png",
+            headers={
+                "Cache-Control": "public, max-age=86400",
+                "X-Analysis": analysis_id,
+                "X-Cache": "hit",
+            },
+        )
+
+    # The instant is always available to a calculation: a monthly total needs
+    # to know how many days the month had.
+    params: dict[str, Any] = {"time": time}
+    params.update({p.name: p.default for p in spec.parameters})
     if base_c is not None:
         params["base_c"] = base_c
     if offset_days is not None:
@@ -410,12 +456,14 @@ def analysis_tile(
     image = ImageData(rgba)
     content = image.render(img_format="PNG", add_mask=False)
 
+    tiles.put(key, content)
     return Response(
         content,
         media_type="image/png",
         headers={
             "Cache-Control": "public, max-age=86400",
             "X-Analysis": analysis_id,
+            "X-Cache": "miss",
             "X-Source-COGs": ", ".join(sources),
         },
     )

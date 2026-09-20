@@ -14,6 +14,10 @@ ANALYSIS = Analysis(
     id={id!r},
     title="t",
     question="?",
+    explanation=(
+        "A placeholder explanation that is long enough to satisfy the rule that"
+        " every analysis has to say what it is for in plain words."
+    ),
     unit="x",
     inputs=(Input("A"),),
     compute=compute,

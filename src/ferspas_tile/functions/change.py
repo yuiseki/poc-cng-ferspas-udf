@@ -1,4 +1,4 @@
-"""This instant minus an earlier one of the same variable."""
+"""The same measurement at two dates, subtracted."""
 
 from __future__ import annotations
 
@@ -22,15 +22,23 @@ def compute(
 
 ANALYSIS = Analysis(
     id="change",
-    title="Change against an earlier date",
-    question="How does today compare with a year ago?",
-    unit="same as input",
+    title="Change against the same month last year",
+    question="Was this month wetter or drier than the same month a year ago?",
+    explanation=(
+        "Rainfall for this month with the same month last year taken away, so"
+        " the seasons cancel out and what is left is the difference between the"
+        " two years. Blue means this year had more rain, red means less. It says"
+        " nothing about whether that is welcome: less rain is a problem during a"
+        " drought and a relief during a flood, and a map cannot tell which one"
+        " you are looking at."
+    ),
+    unit="mm/month",
     inputs=(
-        Input("AGERA5-PF", role="value"),
-        Input("AGERA5-PF", offset_days=-365, role="earlier"),
+        Input("AGERA5-PF-M", role="value"),
+        Input("AGERA5-PF-M", offset_days=-365, role="earlier"),
     ),
     compute=compute,
-    rescale=(-10.0, 10.0),
+    rescale=(-200.0, 200.0),
     scale=DIVERGING,
     neutral=0.0,
     parameters=(
@@ -38,13 +46,11 @@ ANALYSIS = Analysis(
             "offset_days",
             "int",
             -365,
-            "How far back the comparison frame is, in days.",
+            "How far back the comparison month is, in days. -365 is a year.",
         ),
     ),
     notes=(
-        "Red is drier than the earlier date and blue wetter, which is a"
-        " direction and not a verdict. The offset is resolved against the"
-        " timestamps that exist, so a missing day steps to the nearest earlier"
-        " frame rather than failing."
+        "The offset is resolved against the months that exist, so it steps to"
+        " the nearest earlier frame rather than failing."
     ),
 )

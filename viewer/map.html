@@ -42,6 +42,7 @@
   time { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 96px; }
   .ramp { height: 10px; border-radius: 5px; flex: 1 1 140px; min-width: 120px;
     border: 1px solid var(--line); }
+  .why { margin: 0; font-size: 13px; color: var(--muted); }
   .err { color: #b3261e; }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) .err { color: #f2b8b5; }
@@ -67,6 +68,9 @@
     <span class="muted" id="lo">&mdash;</span>
     <span class="ramp" id="ramp"></span>
     <span class="muted" id="hi">&mdash;</span>
+  </div>
+  <div class="row">
+    <p class="why" id="why"></p>
   </div>
   <div class="row">
     <span class="muted" id="status"></span>
@@ -173,6 +177,7 @@ map.on("load", async () => {
     el("sub").textContent = spec
       ? `${spec.unit} · ${spec.question}`
       : `${meta.unit ?? ""} · ${meta.count.toLocaleString()} frames · ${meta.first} – ${meta.last}`;
+    el("why").textContent = spec ? spec.explanation : "";
 
     addLayer();
     setFrame(current);

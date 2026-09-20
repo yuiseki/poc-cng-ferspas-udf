@@ -101,13 +101,30 @@ and the calculation stayed trapped there. Here it is a file.
 
 | id | question | reads | unit |
 | --- | --- | --- | --- |
-| `water-balance` | Is this place gaining or losing water today? | PF, ET0 | mm/day |
-| `aridity` | Can rain alone meet the atmospheric demand here? | PF, ET0 | ratio |
-| `gdd` | How much heat did a crop get today? | TMAX, TMIN | degree-days |
-| `diurnal-range` | How far did the temperature swing today? | TMAX, TMIN | K |
-| `change` | How does today compare with a year ago? | PF twice | same as input |
+| `water-balance` | Did this place gain or lose water this month? | PF-M, ET0-M | mm/month |
+| `aridity` | Could rain alone keep a crop supplied this month? | PF-M, ET0-M | ratio |
+| `gdd` | How much usable warmth did a crop get this month? | TMAX-AVG-M, TMIN-AVG-M | degree-days |
+| `diurnal-range` | How far did the temperature swing between afternoon and night? | TMAX-AVG-M, TMIN-AVG-M | K |
+| `change` | Was this month wetter or drier than the same month a year ago? | PF-M twice | mm/month |
 
-Why these, for a reader who does not do agronomy:
+Each analysis carries an `explanation`: a few sentences for someone who does
+not work in agriculture or remote sensing, saying what is being subtracted from
+what and what the picture is for. The index shows it on the card and the map
+page shows it under the legend, and the constructor refuses an analysis whose
+explanation is too short to explain anything.
+
+### Monthly, not daily
+
+The analyses read the monthly AgERA5 collections rather than the daily ones.
+Daily is finer than this needs: at one frame a day a slider covers 16,997
+frames and a year of scrubbing shows mostly weather, while at one a month it
+covers 571 and shows seasons. It also matters to the arithmetic. An aridity
+ratio over a single day mostly answers whether it happened to rain that day, so
+the map came out almost entirely red; over a month it is the interval the index
+is actually defined over. Growing degree days accumulate over the month, using
+its real length, so February and July are not compared as if equal.
+
+Why these five, for a reader who does not do agronomy:
 
 - **Water balance** is rain minus what the atmosphere can evaporate. Positive
   means water is accumulating, negative means a crop is drawing on soil moisture
@@ -206,6 +223,32 @@ Every map is its own URL, so one can be sent to someone:
 which item to pick from a dropdown. The map page reads its target out of the
 path and carries a link back to the index. An id that does not exist is a 404
 from the server rather than a page that loads and then fails in the browser.
+
+## Tile cache
+
+A rendered tile is expensive and immutable: the COGs behind a past month do not
+change, so the same URL always produces the same bytes. They are cached to disk,
+and a cold tile at about 4 s becomes 1 ms.
+
+The one way this goes badly wrong is filling the disk, so the budget is a byte
+count enforced on the way in, not a file count, a time-to-live, or a sweeper
+that might not run. A write that would exceed it evicts least-recently-used
+entries until it fits. A tile larger than the whole budget is not cached at
+all, rather than evicting everything and still not fitting.
+
+```bash
+FERSPAS_TILE_CACHE=cache/tiles          # where
+FERSPAS_TILE_CACHE_BYTES=536870912      # how much, default 512 MB
+```
+
+`GET /cache` reports usage against the budget, and responses carry
+`X-Cache: hit` or `miss`. Only files the cache wrote are ever counted or
+deleted; a stranger's file in the cache directory is left alone, which is
+checked by a test. Tiles are written to a temporary name and renamed, so a
+crash leaves no truncated entry and a reader never sees a half-written tile.
+
+Verified rather than assumed: run with a 200 kB budget and asked for eight
+tiles, the directory measured 195,825 bytes on disk with four evictions.
 
 ## What was measured
 
