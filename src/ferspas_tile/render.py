@@ -88,7 +88,7 @@ def fetch_spec(
         f"{api_root}/collections/{collection_id}",
         timeout=timeout,
         follow_redirects=True,
-        headers={"User-Agent": "poc-cng-ferspas-test-tile"},
+        headers={"User-Agent": "poc-cng-ferspas-udf"},
     )
     response.raise_for_status()
     return spec_from_collection(response.json())

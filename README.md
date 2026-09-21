@@ -1,8 +1,9 @@
-# poc-cng-ferspas-test-tile
+# poc-cng-ferspas-udf
 
-> **A Cloud Native Geospatial PoC: XYZ tiles with a time axis, read on the fly
-> from FAO FERSPAS Cloud Optimized GeoTIFFs, picked per request from a
-> GeoParquet index.** No tile pre-build, no preprocessed COG, no tile database.
+> **A Cloud Native Geospatial PoC: named analysis functions over FAO FERSPAS,
+> each one served as XYZ tiles with a time axis.** The function is the unit:
+> one file declares what it reads, what it computes and how it is coloured, and
+> becomes an endpoint. Nothing is pre-built; a tile is computed when asked for.
 
 ```
 GET /tiles/{short_id}/{time}/{z}/{x}/{y}.png
