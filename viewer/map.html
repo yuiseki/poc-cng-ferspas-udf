@@ -208,7 +208,7 @@ map.on("load", async () => {
     times = meta.timestamps;
     current = times.length - 1;
     el("slider").max = times.length - 1;
-    document.title = `${spec ? spec.title : meta.title} — ferspas-tile`;
+    document.title = `${spec ? spec.title : meta.title} — ferspas-udf`;
     el("title").textContent = spec ? spec.title : meta.title;
     el("sub").textContent = spec
       ? `${spec.unit} · ${spec.question}`

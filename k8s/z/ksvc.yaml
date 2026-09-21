@@ -1,7 +1,7 @@
 # z cluster (yuisekin-z, x86_64, single node). The image is built on z and
 # imported straight into containerd, so there is no registry in the loop:
-#   docker build -t ferspas-udf:0.1.0 .
-#   docker save ferspas-udf:0.1.0 | ctr -n k8s.io images import -
+#   docker build -t ferspas-udf:0.1.1 .
+#   docker save ferspas-udf:0.1.1 | ctr -n k8s.io images import -
 #   kubectl apply -f k8s/z/namespace.yaml -f k8s/z/ksvc.yaml
 #
 # A bare image name is treated as docker.io, which config-deployment lists in
@@ -34,7 +34,7 @@ spec:
       # the alternative is a request killed mid-read.
       timeoutSeconds: 120
       containers:
-        - image: ferspas-udf:0.1.0
+        - image: ferspas-udf:0.1.1
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

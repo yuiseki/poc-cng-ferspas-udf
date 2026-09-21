@@ -18,7 +18,7 @@ def test_the_index_is_a_page_not_json(client):
     response = client.get("/")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
-    assert "ferspas-tile" in response.text
+    assert "ferspas-udf" in response.text
 
 
 def test_the_service_description_moved_to_its_own_url(client):
@@ -51,3 +51,28 @@ def test_the_viewer_page_has_no_picker_and_a_way_back(client):
     page = client.get(f"/viewer/analysis/{next(iter(REGISTRY))}").text
     assert "Return to index" in page
     assert "<select" not in page
+
+
+REPO = "https://github.com/yuiseki/poc-cng-ferspas-udf"
+
+
+def test_the_index_is_titled_after_the_service(client):
+    page = client.get("/").text
+    assert "<title>ferspas-udf</title>" in page
+    assert "ferspas-tile" not in page
+
+
+def test_the_index_links_to_the_source(client):
+    page = client.get("/").text
+    assert page.count(REPO) >= 2  # the header button and the footer
+
+
+def test_the_service_description_names_its_source(client):
+    body = client.get("/service.json").json()
+    assert body["service"] == "ferspas-udf"
+    assert body["source"] == REPO
+
+
+def test_no_viewer_page_still_says_ferspas_tile(client):
+    for path in ("/", f"/viewer/analysis/{next(iter(REGISTRY))}"):
+        assert "ferspas-tile" not in client.get(path).text, path

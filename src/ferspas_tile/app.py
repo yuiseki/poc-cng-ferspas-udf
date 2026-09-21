@@ -154,7 +154,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="ferspas-tile", version=__version__, lifespan=lifespan)
+app = FastAPI(title="ferspas-udf", version=__version__, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"]
 )
@@ -172,7 +172,8 @@ def home() -> FileResponse:
 @app.get("/service.json")
 def service() -> dict[str, Any]:
     return {
-        "service": "ferspas-tile",
+        "service": "ferspas-udf",
+        "source": "https://github.com/yuiseki/poc-cng-ferspas-udf",
         "version": __version__,
         "description": (
             "XYZ + time raster tiles read straight from FERSPAS Cloud Optimized"
