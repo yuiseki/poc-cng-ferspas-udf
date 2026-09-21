@@ -222,9 +222,18 @@ layer that already exists.
 | `GET /viewer/analysis/{id}` | map of one analysis |
 | `GET /viewer/collection/{short_id}` | map of one raw collection |
 
-Collections split by a categorical datacube dimension are pinned with query
-parameters: `?season=GS1&lct=LC-C`. Without them such a collection has more than
-one COG per instant, and the server says so instead of picking one.
+A collection split by a categorical datacube dimension has more than one COG
+per instant, and the server will not pick one silently. Name the dimension in
+the query string to choose: `?SEASON=GS1&LCT=LC-C`, or `?CROP-RES02=WHEA`.
+Matching is against the dimension's own name, so all sixty-five are reachable,
+not only the nine that have a column in the index.
+
+A viewer opened without a pinning gets one: the combination with the most
+frames, which exists by construction. Picking the first value of each dimension
+independently does not work, because it names cross-products nobody published.
+GAEZ has a future PERIOD and a historical SSP that never occur together, so a
+guess like that is a 404 rather than a map. `/collections/{short_id}/timestamps`
+reports which pinning was used and every value each dimension takes.
 
 ## Run it
 

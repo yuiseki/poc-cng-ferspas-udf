@@ -57,6 +57,8 @@
   .ramp { height: 10px; border-radius: 5px; flex: 1 1 140px; min-width: 120px;
     border: 1px solid var(--line); }
   .hint { font-size: 12px; color: var(--muted); }
+  #pinned { font-size: 12px; font-family: ui-monospace, SFMono-Regular, monospace; }
+  #pinned:empty { display: none; }
   /* Shown only while tiles are on their way. The date has already changed by
      then, so without this the map looks stuck rather than busy. */
   .spinner, .loading-text { display: none; }
@@ -121,6 +123,9 @@
     <p class="why" id="why"></p>
   </details>
   <div class="row">
+    <span class="muted" id="pinned"></span>
+  </div>
+  <div class="row">
     <span class="muted" id="status"></span>
   </div>
 </div>
@@ -173,9 +178,13 @@ map.addControl(new NavigationControl(), "top-right");
 // Reachable from a console or a browser test; nothing in the page reads it.
 window.map = map;
 
+// A raw collection may be split by CLIM, CROP, PERIOD and so on. Whatever is
+// in the page's query string is passed straight through, and the server fills
+// in the rest from a combination that exists.
+const qs = location.search;
 const tileUrl = (t) => isAnalysis
-  ? `${API}/analysis/${target}/${t}/{z}/{x}/{y}.png`
-  : `${API}/tiles/${target}/${t}/{z}/{x}/{y}.png`;
+  ? `${API}/analysis/${target}/${t}/{z}/{x}/{y}.png${qs}`
+  : `${API}/tiles/${target}/${t}/{z}/{x}/{y}.png${qs}`;
 
 function setLoading(on) {
   el("panel").classList.toggle("loading", on);
@@ -333,7 +342,7 @@ map.on("load", async () => {
       if (spec.detail) throw new Error(spec.detail);
       axis = spec.inputs[0].collection;
     }
-    meta = await (await fetch(`${API}/collections/${axis}/timestamps`)).json();
+    meta = await (await fetch(`${API}/collections/${axis}/timestamps${qs}`)).json();
     if (meta.detail) throw new Error(meta.detail);
 
     times = meta.timestamps;
@@ -345,6 +354,12 @@ map.on("load", async () => {
       ? `${spec.unit} · ${spec.question}`
       : `${meta.unit ?? ""} · ${meta.count.toLocaleString()} frames · ${meta.first} – ${meta.last}`;
     el("why").textContent = spec ? spec.explanation : "";
+    // Say which slice is on screen, or a reader cannot tell which crop and
+    // which scenario they are looking at.
+    const pinned = Object.entries(meta.dimensions ?? {});
+    el("pinned").textContent = pinned.length
+      ? pinned.map(([k, v]) => `${k}=${v}`).join("  ")
+      : "";
 
     addLayer();
     setFrame(current);

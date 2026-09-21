@@ -50,6 +50,8 @@
   th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
   th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase;
     letter-spacing: .04em; }
+  .split { font-size: 11.5px; color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, monospace; }
   td.n { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
   footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--line);
     font-size: 13px; color: var(--muted); }
@@ -130,7 +132,10 @@ for (const c of list.collections) {
   const tr = document.createElement("tr");
   tr.innerHTML = `
     <td><a href="/viewer/collection/${c.short_id}">${c.short_id}</a></td>
-    <td>${(c.title ?? "").replace(/ \(Global.*$/, "")}</td>
+    <td>${(c.title ?? "").replace(/ \(Global.*$/, "")}${
+      c.dimensions?.length
+        ? `<br><span class="split">split by ${c.dimensions.join(", ")}</span>`
+        : ""}</td>
     <td>${c.unit ?? ""}</td>
     <td class="n">${c.frames.toLocaleString()}</td>`;
   el("collections").appendChild(tr);

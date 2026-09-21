@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 from typing import Any  # noqa: E402
 
 import duckdb  # noqa: E402
-from fastapi import FastAPI, HTTPException, Query, Response  # noqa: E402
+from fastapi import FastAPI, HTTPException, Query, Request, Response  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import (  # noqa: E402
     FileResponse,
@@ -43,7 +43,12 @@ from . import ITEMS_PARQUET, __version__  # noqa: E402
 from .cache import TileCache  # noqa: E402
 from .analysis import Analysis, shift  # noqa: E402
 from .functions import REGISTRY  # noqa: E402
-from .index import CollectionIndex, load_index, public_collections  # noqa: E402
+from .index import (  # noqa: E402
+    CollectionIndex,
+    default_dims,
+    load_index,
+    public_collections,
+)
 from .render import RenderSpec, fetch_spec  # noqa: E402
 
 logger = logging.getLogger("ferspas_tile")
@@ -66,6 +71,7 @@ tiles = TileCache(CACHE_DIR, max_bytes=CACHE_BYTES)
 _indexes: dict[str, CollectionIndex] = {}
 _specs: dict[str, RenderSpec] = {}
 _collection_ids: dict[str, str] = {}
+_defaults: dict[str, dict[str, str]] = {}
 _connection = duckdb.connect()
 _cache_lock = threading.Lock()
 
@@ -118,9 +124,37 @@ def _spec(short_id: str) -> RenderSpec:
         return _specs[short_id]
 
 
-def _dims(season: str | None, lct: str | None, crop: str | None) -> dict[str, str]:
-    pinned = {"season": season, "lct": lct, "crop": crop}
-    return {k: v for k, v in pinned.items() if v}
+# Query parameters the server owns; anything else is read as a dimension name.
+RESERVED_PARAMS = frozenset({"cb", "base_c", "offset_days", "limit"})
+
+
+def _dims_from_query(request: Request, short_id: str) -> dict[str, str]:
+    """Dimension pinning from the query string, falling back to a real default.
+
+    A collection split by CLIM, CROP, PERIOD, SSP and a water-supply code has
+    no single obvious frame, and listing it without a pinning produced a link
+    that always failed. Unnamed dimensions now take the values of the
+    collection's most common combination, which exists by construction.
+    """
+    given = {
+        name: value
+        for name, value in request.query_params.items()
+        if name not in RESERVED_PARAMS and value
+    }
+    defaults = _default_dims(short_id)
+    if not defaults:
+        return given
+    return {**defaults, **given}
+
+
+def _default_dims(short_id: str) -> dict[str, str]:
+    with _cache_lock:
+        if short_id in _defaults:
+            return _defaults[short_id]
+    found = default_dims(short_id, connection=_connection.cursor())
+    with _cache_lock:
+        _defaults.setdefault(short_id, found)
+        return _defaults[short_id]
 
 
 def warm_indexes() -> None:
@@ -239,13 +273,8 @@ def collections(limit: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
 
 
 @app.get("/collections/{short_id}/timestamps")
-def timestamps(
-    short_id: str,
-    season: str | None = None,
-    lct: str | None = None,
-    crop: str | None = None,
-) -> dict[str, Any]:
-    index = _index(short_id, _dims(season, lct, crop))
+def timestamps(short_id: str, request: Request) -> dict[str, Any]:
+    index = _index(short_id, _dims_from_query(request, short_id))
     spec = _spec(short_id)
     return {
         "short_id": short_id,
@@ -254,6 +283,7 @@ def timestamps(
         "unit": spec.unit,
         "rescale": spec.rescale,
         "dimensions": index.dims,
+        "dimension_choices": _dimension_choices(short_id),
         "count": len(index),
         "first": index.times[0],
         "last": index.times[-1],
@@ -274,15 +304,23 @@ def colormap(short_id: str) -> dict[str, Any]:
     }
 
 
+def _dimension_choices(short_id: str) -> dict[str, list[str]]:
+    """Every value each of a collection's dimensions actually takes."""
+    rows = _query(
+        f"SELECT dims FROM read_parquet('{ITEMS_PARQUET}') WHERE short_id = ?"
+        " AND cardinality(dims) > 0",
+        [short_id],
+    )
+    choices: dict[str, set[str]] = {}
+    for (mapping,) in rows:
+        for name, value in dict(mapping).items():
+            choices.setdefault(name, set()).add(value)
+    return {name: sorted(values) for name, values in sorted(choices.items())}
+
+
 @app.get("/collections/{short_id}/{time}/tilejson.json")
-def tilejson(
-    short_id: str,
-    time: str,
-    season: str | None = None,
-    lct: str | None = None,
-    crop: str | None = None,
-) -> dict[str, Any]:
-    index = _index(short_id, _dims(season, lct, crop))
+def tilejson(short_id: str, time: str, request: Request) -> dict[str, Any]:
+    index = _index(short_id, _dims_from_query(request, short_id))
     frame = index.frame(time)
     if frame is None:
         raise HTTPException(404, f"{short_id} has no frame at {time}")
@@ -300,17 +338,10 @@ def tilejson(
 
 
 @app.get("/tiles/{short_id}/{time}/{z}/{x}/{y}.png")
-def tile(
-    short_id: str,
-    time: str,
-    z: int,
-    x: int,
-    y: int,
-    season: str | None = None,
-    lct: str | None = None,
-    crop: str | None = None,
-) -> Response:
-    key = f"tile|{short_id}|{season}|{lct}|{crop}|{time}|{z}/{x}/{y}"
+def tile(short_id: str, time: str, z: int, x: int, y: int, request: Request) -> Response:
+    pinned = _dims_from_query(request, short_id)
+    signature = ",".join(f"{k}={v}" for k, v in sorted(pinned.items()))
+    key = f"tile|{short_id}|{signature}|{time}|{z}/{x}/{y}"
     cached = tiles.get(key)
     if cached is not None:
         return Response(
@@ -319,7 +350,7 @@ def tile(
             headers={"Cache-Control": "public, max-age=86400", "X-Cache": "hit"},
         )
 
-    index = _index(short_id, _dims(season, lct, crop))
+    index = _index(short_id, pinned)
     frame = index.frame(time)
     if frame is None:
         raise HTTPException(

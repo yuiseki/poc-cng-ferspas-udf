@@ -65,6 +65,29 @@ def _as_time(value: Any) -> str:
     return str(value)[:10]
 
 
+def default_dims(
+    short_id: str,
+    items_parquet: str = ITEMS_PARQUET,
+    connection: duckdb.DuckDBPyConnection | None = None,
+) -> dict[str, str]:
+    """A pinning that exists, for a collection split by several dimensions.
+
+    Picking the first value of each dimension independently is a cross-product
+    guess and often names a combination nobody published: GAEZ has a future
+    PERIOD and a historical SSP that never appear together. So this asks the
+    data instead, and returns the combination with the most frames, which is
+    both real and the longest time series to look at.
+    """
+    con = connection or duckdb.connect()
+    rows = con.execute(
+        f"SELECT dims, count(*) AS n FROM read_parquet('{items_parquet}')"
+        " WHERE short_id = ? AND cardinality(dims) > 0"
+        " GROUP BY dims ORDER BY n DESC, dims LIMIT 1",
+        [short_id],
+    ).fetchall()
+    return dict(rows[0][0]) if rows else {}
+
+
 def load_index(
     short_id: str,
     items_parquet: str = ITEMS_PARQUET,
@@ -74,19 +97,21 @@ def load_index(
     """Read every frame of one collection out of items.parquet.
 
     ``dims`` pins the categorical datacube dimensions a collection is split by,
-    e.g. ``{"season": "GS1", "lct": "LC-C"}``.  A collection that is split and
-    is not pinned would otherwise return several COGs for the same instant, so
-    that is an error rather than an arbitrary pick.
+    keyed by the dimension's own name: ``{"SEASON": "GS1", "LCT": "LC-C"}`` or
+    ``{"CROP-RES02": "WHEA"}``.  Matching happens against the ``dims`` map in
+    the table rather than a column, because only nine of the sixty-five
+    dimensions have a column of their own and the rest would be unreachable.
+
+    A collection that is split and is not pinned returns several COGs for the
+    same instant, which is an error rather than an arbitrary pick.
     """
     con = connection or duckdb.connect()
     dims = dims or {}
     where = ["short_id = ?"]
     params: list[Any] = [short_id]
-    for column, value in sorted(dims.items()):
-        if not column.isidentifier():
-            raise ValueError(f"not a usable dimension column: {column}")
-        where.append(f"{column} = ?")
-        params.append(value)
+    for name, value in sorted(dims.items()):
+        where.append("dims[?] = ?")
+        params.extend([name, value])
 
     rows = con.execute(
         f"SELECT start_datetime, data_href, file_size"
