@@ -11,28 +11,31 @@ GET /tiles/{short_id}/{time}/{z}/{x}/{y}.png
 
 One more path segment than an ordinary tile URL. Everything FERSPAS publishes is
 a time series, so the moment belongs next to the tile index: a viewer swaps one
-segment to scrub 47 years of daily global weather, and every frame stays its own
+segment to scrub 47 years of global weather, and every frame stays its own
 cacheable URL.
 
 | | |
 | --- | --- |
 | upstream data | [FAO FERSPAS](https://data.apps.fao.org/remote-sensing-portal/), 1921 collections / 639,947 COGs |
-| index | <https://stac.yuiseki.net/fao-ferspas/items.parquet> (9.4 MB, built by [study-un-fao-ferspas](../../_study/study-un-fao-ferspas)) |
+| index | <https://stac.yuiseki.net/fao-ferspas/items.parquet>, 9.4 MB |
 | runtime | FastAPI + rio-tiler + DuckDB |
 | example | `/tiles/AGERA5-PF/2026-08-01/2/1/1.png` |
 
 ## Where this sits
 
-[poc-cng-cog-tile](../poc-cng-cog-tile) showed a FaaS function can serve tiles
-from any COG without Martin's GoogleMapsCompatible preprocessing.
-[poc-cng-hotosm-imagery-tile](../poc-cng-hotosm-imagery-tile) replaced the fixed
-`COG_PATH` with a STAC API call per tile, so the function has no preconfigured
-dataset.
+[poc-cng-cog-tile](https://github.com/yuiseki/poc-cng-cog-tile) showed a FaaS
+function can serve tiles from any COG without Martin's GoogleMapsCompatible
+preprocessing.
+[poc-cng-hotosm-imagery-tile](https://github.com/yuiseki/poc-cng-hotosm-imagery-tile)
+replaced the fixed `COG_PATH` with a STAC API call per tile, so the function has
+no preconfigured dataset.
 
 This one changes two things.
 
 The index is a static file, not an API. FERSPAS has a STAC API, but its item
-metadata is also published as a 9.4 MB GeoParquet table. One DuckDB query at
+metadata is also published as a 9.4 MB GeoParquet table, which was built for
+this by surveying the catalogue and is served from
+<https://stac.yuiseki.net/fao-ferspas/>. One DuckDB query at
 startup turns a whole collection into an in-memory time series, so answering
 "which COG is this tile" costs a dict lookup rather than an HTTP round trip.
 HOTOSM's per-tile `/search` is right when the index lives server side; here it
@@ -314,3 +317,13 @@ the basemap and never requests a tile.
 - No zoom limit tuning. AGERA5 is ~10 km, so past z8 the tiles are upsampled.
 - The index is rebuilt at process start. A long-running deployment should watch
   the parquet's ETag instead.
+
+## Licence
+
+MIT. See `LICENSE`.
+
+The data is FAO's, not this repository's. Nothing here redistributes a raster:
+tiles are rendered on request and the files stay on FAO's servers. Each FERSPAS
+collection carries its own licence, and 291 of the 1921 are non-commercial, so
+check the `license` column in `collections.parquet` before building on a
+particular one.
