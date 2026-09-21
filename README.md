@@ -16,10 +16,11 @@ cacheable URL.
 
 | | |
 | --- | --- |
+| live | <https://ferspas-udf.yuiseki.net/> |
 | upstream data | [FAO FERSPAS](https://data.apps.fao.org/remote-sensing-portal/), 1921 collections / 639,947 COGs |
 | index | <https://stac.yuiseki.net/fao-ferspas/items.parquet>, 9.4 MB |
 | runtime | FastAPI + rio-tiler + DuckDB |
-| example | `/tiles/AGERA5-PF/2026-08-01/2/1/1.png` |
+| example | <https://ferspas-udf.yuiseki.net/analysis/water-balance/2026-07-01/3/4/3.png> |
 
 ## Where this sits
 

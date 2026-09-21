@@ -47,8 +47,9 @@ kubectl get domainmapping -n knative-pool          # expect READY=True
 curl -sI -H 'Host: ferspas-udf.yuiseki.net' http://127.0.0.1:30880/health
 ```
 
-**2. In Cloudflare (not doable from here).** The tunnel on this machine runs
-from a token, so its ingress rules live in the dashboard rather than on disk:
+**2. In Cloudflare (not doable from here; done for this service).** The tunnel
+on this machine runs from a token, so its ingress rules live in the dashboard
+rather than on disk:
 
 - Zero Trust -> Networks -> Tunnels -> this tunnel -> Public Hostnames -> Add
 - Hostname: `ferspas-udf.yuiseki.net`
@@ -86,3 +87,25 @@ for its index, its warm COG blocks and its tile cache is kept around.
 
 The tile cache is `emptyDir`-backed under `/tmp` and capped at 256 MB per pod.
 It is an optimisation: a pod that dies simply pays for its tiles again.
+
+## What the cache looks like in the cluster
+
+The tile cache is per pod, so its hit rate falls as the autoscaler adds pods
+and goes to zero when it scales to zero. Measured on the live service with
+three pods up: 14 tiles written, no hits, because consecutive requests landed
+on different pods.
+
+That is not worth fixing in the pod. Tiles carry
+`Cache-Control: public, max-age=86400` and the edge is what makes it fast for
+anyone else:
+
+```
+GET 1  4.66s  cf-cache-status: MISS
+GET 2  0.39s  cf-cache-status: HIT
+GET 3  0.08s  cf-cache-status: HIT
+```
+
+The on-disk cache still earns its place for the first visitor after a deploy
+and for a pod being scrubbed through by one person, which is exactly the
+scale-down-delay case it was sized for. A shared cache across pods would be a
+volume or a Redis, and neither is worth it for a proof of concept.
