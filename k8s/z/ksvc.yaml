@@ -1,0 +1,61 @@
+# z cluster (yuisekin-z, x86_64, single node). The image is built on z and
+# imported straight into containerd, so there is no registry in the loop:
+#   docker build -t ferspas-udf:0.1.0 .
+#   docker save ferspas-udf:0.1.0 | ctr -n k8s.io images import -
+#   kubectl apply -f k8s/z/namespace.yaml -f k8s/z/ksvc.yaml
+#
+# A bare image name is treated as docker.io, which config-deployment lists in
+# registries-skipping-tag-resolving, so Knative does not try to resolve a digest
+# for an image that was never pushed anywhere.
+#
+# Knative's domain for this cluster is yuiseki.com, so applying this alone gives
+# https://ferspas-udf.yuiseki.com. The yuiseki.net name needs the DomainMapping
+# beside this file and a Cloudflare record; see k8s/README.md.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: ferspas-udf
+  namespace: knative-pool
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "0"
+        autoscaling.knative.dev/max-scale: "3"
+        autoscaling.knative.dev/target: "8"
+        # Starting up is expensive here: the lifespan hook builds an index for
+        # each collection the registry names, one DuckDB query against a 9.4 MB
+        # remote parquet apiece. A pod that has paid that, and has warm COG
+        # blocks and a warm tile cache, is worth keeping for a while.
+        autoscaling.knative.dev/scale-down-delay: "600s"
+    spec:
+      containerConcurrency: 8
+      # A cold analysis tile reads two COGs over HTTPS; 120 s is generous but
+      # the alternative is a request killed mid-read.
+      timeoutSeconds: 120
+      containers:
+        - image: ferspas-udf:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            # emptyDir-backed and per-pod: the cache is an optimisation, and a
+            # pod that dies simply pays for its tiles again.
+            - name: FERSPAS_TILE_CACHE
+              value: /tmp/ferspas-tiles
+            - name: FERSPAS_TILE_CACHE_BYTES
+              value: "268435456"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /health
+            # The warm-up takes about 30 s, so the probe has to wait it out
+            # rather than declaring the pod dead and starting another one.
+            periodSeconds: 5
+            failureThreshold: 30

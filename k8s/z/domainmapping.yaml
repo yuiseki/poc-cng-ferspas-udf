@@ -1,0 +1,29 @@
+# ferspas-udf.yuiseki.net -> the ksvc.
+#
+# Knative's own domain here is yuiseki.com, and *.yuiseki.com already resolves
+# and already reaches Kourier through the tunnel. yuiseki.net has no wildcard:
+# it carries individual records (stac, z), so this name needs two things doing
+# in Cloudflare that cannot be done from the cluster. See k8s/README.md.
+#
+# This object is what makes Kourier answer for the name once traffic arrives.
+# With autocreate-cluster-domain-claims unset (the default), a DomainMapping
+# outside the cluster's own domain needs a claim saying which namespace may
+# take the name. Without one Knative reports DomainAlreadyClaimed, which reads
+# like someone else has it rather than "nobody has granted it to you".
+apiVersion: networking.internal.knative.dev/v1alpha1
+kind: ClusterDomainClaim
+metadata:
+  name: ferspas-udf.yuiseki.net
+spec:
+  namespace: knative-pool
+---
+apiVersion: serving.knative.dev/v1beta1
+kind: DomainMapping
+metadata:
+  name: ferspas-udf.yuiseki.net
+  namespace: knative-pool
+spec:
+  ref:
+    name: ferspas-udf
+    kind: Service
+    apiVersion: serving.knative.dev/v1
