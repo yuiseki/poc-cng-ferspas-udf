@@ -76,3 +76,38 @@ def test_the_service_description_names_its_source(client):
 def test_no_viewer_page_still_says_ferspas_tile(client):
     for path in ("/", f"/viewer/analysis/{next(iter(REGISTRY))}"):
         assert "ferspas-tile" not in client.get(path).text, path
+
+
+# -- caching ---------------------------------------------------------------
+#
+# Only tiles are worth holding at the edge. When the pages carried no
+# Cache-Control, Cloudflare applied its own TTL and held them, so changing the
+# viewer meant purging the zone and losing the tiles with it.
+
+
+def test_pages_revalidate_so_a_deploy_does_not_need_a_purge(client):
+    for path in ("/", f"/viewer/analysis/{next(iter(REGISTRY))}"):
+        cache_control = client.get(path).headers["cache-control"]
+        assert "no-cache" in cache_control, path
+
+
+def test_metadata_revalidates_too(client):
+    for path in ("/service.json", "/analysis"):
+        assert "no-cache" in client.get(path).headers["cache-control"], path
+
+
+def test_live_numbers_are_never_stored(client):
+    for path in ("/cache", "/health"):
+        assert client.get(path).headers["cache-control"] == "no-store", path
+
+
+def test_a_page_carries_an_etag_so_revalidation_is_cheap(client):
+    assert client.get("/").headers.get("etag")
+
+
+def test_the_viewer_offers_buttons_for_a_phone(client):
+    page = client.get(f"/viewer/analysis/{next(iter(REGISTRY))}").text
+    assert 'id="prev"' in page
+    assert 'id="next"' in page
+    assert 'aria-label="previous month"' in page
+    assert 'aria-label="next month"' in page

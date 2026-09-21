@@ -223,6 +223,13 @@ The index lists every analysis with the question it answers, its inputs, its
 colour ramp and how to read it, then the raw collections with the longest time
 series. Each entry links to its own map.
 
+There are three ways to move through time, because a phone has none of the
+keyboard and a slider thumb is not a touch target: buttons either side of
+`play`, the slider, and the left and right arrow keys. The buttons are 44 px
+and disable themselves at the ends of the series. On a narrow screen the
+explanation folds behind a summary, because the panel is otherwise most of the
+screen and the map is the point.
+
 Left and right step through time from anywhere on the page, and the slider
 takes keyboard focus as usual. Two things compete for those keys: the range
 input handles them natively when focused, so that case is left alone rather

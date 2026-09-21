@@ -33,17 +33,41 @@
   .muted { color: var(--muted); font-size: 12px; }
   button { font: inherit; color: var(--fg); background: var(--panel);
     border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; }
+  button:disabled { opacity: .4; cursor: default; }
+  /* A phone has no arrow keys and a 6px slider thumb is not a target, so the
+     step buttons are the primary control there and get a 44px box. */
+  .steps { gap: 8px; }
+  .step { flex: none; width: 44px; height: 44px; padding: 0; font-size: 15px;
+    line-height: 1; display: inline-flex; align-items: center;
+    justify-content: center; }
+  #play { flex: none; min-width: 72px; height: 44px; }
+  .steps input[type=range] { height: 44px; }
   .back { font-size: 13px; text-decoration: none; color: var(--accent);
     border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; }
   .back:hover { border-color: var(--accent); }
   button { cursor: pointer; min-width: 84px; }
   button:hover { border-color: var(--accent); }
-  input[type=range] { flex: 1 1 200px; min-width: 160px; accent-color: var(--accent); }
+  input[type=range] { flex: 1 1 160px; min-width: 100px; accent-color: var(--accent); }
+  @media (max-width: 480px) {
+    .panel { padding: 10px 12px; }
+    .hint { display: none; }          /* no arrow keys on a phone */
+    .steps input[type=range] { flex: 1 1 100%; order: 3; }
+  }
   time { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 96px; }
   .ramp { height: 10px; border-radius: 5px; flex: 1 1 140px; min-width: 120px;
     border: 1px solid var(--line); }
   .hint { font-size: 12px; color: var(--muted); }
-  .why { margin: 0; font-size: 13px; color: var(--muted); }
+  .why { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+  details { margin-top: 10px; }
+  summary { font-size: 13px; color: var(--accent); cursor: pointer;
+    list-style: none; padding: 4px 0; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "\25B8 "; display: inline-block;
+    transition: transform .15s; }
+  details[open] summary::before { transform: rotate(90deg); }
+  /* Open on a desktop, folded on a phone: the panel is already most of a
+     phone screen and the map is the point. */
+  details[open] summary { color: var(--muted); }
   .err { color: #b3261e; }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) .err { color: #f2b8b5; }
@@ -59,11 +83,13 @@
   </div>
   <div class="row">
     <a class="back" href="/">&larr; Return to index</a>
-    <button id="play">play</button>
     <time id="stamp">&mdash;</time>
     <span class="hint">&larr; &rarr; to step</span>
   </div>
-  <div class="row">
+  <div class="row steps">
+    <button id="prev" class="step" aria-label="previous month">&#9664;</button>
+    <button id="play">play</button>
+    <button id="next" class="step" aria-label="next month">&#9654;</button>
     <input type="range" id="slider" min="0" max="0" value="0">
   </div>
   <div class="row">
@@ -71,9 +97,10 @@
     <span class="ramp" id="ramp"></span>
     <span class="muted" id="hi">&mdash;</span>
   </div>
-  <div class="row">
+  <details id="about">
+    <summary>What am I looking at?</summary>
     <p class="why" id="why"></p>
-  </div>
+  </details>
   <div class="row">
     <span class="muted" id="status"></span>
   </div>
@@ -116,6 +143,8 @@ function setFrame(i) {
   const t = times[current];
   el("stamp").textContent = t;
   el("slider").value = current;
+  el("prev").disabled = current === 0;
+  el("next").disabled = current === times.length - 1;
   const src = map.getSource("ferspas");
   if (src) src.setTiles([tileUrl(t)]);
 }
@@ -182,15 +211,26 @@ window.addEventListener("keydown", (e) => {
 
   e.preventDefault();
   e.stopPropagation();
-  stopPlaying();
-  setFrame(current + (e.key === "ArrowRight" ? 1 : -1));
+  step(e.key === "ArrowRight" ? 1 : -1);
 }, true);
+
+function step(by) {
+  stopPlaying();
+  setFrame(current + by);
+}
+
+el("prev").addEventListener("click", () => step(-1));
+el("next").addEventListener("click", () => step(1));
 
 el("play").addEventListener("click", () => {
   if (timer) { stopPlaying(); return; }
   el("play").textContent = "pause";
   timer = setInterval(() => setFrame(current + 1 >= times.length ? 0 : current + 1), 900);
 });
+
+// A phone screen is mostly panel once the explanation is open, so it starts
+// folded there and open where there is room.
+el("about").open = window.innerWidth > 480;
 
 map.on("load", async () => {
   try {

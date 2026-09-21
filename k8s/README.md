@@ -13,8 +13,8 @@ their own containerd, which is why `poc-cng-taroverture-openmaptiles` pushes to
 `192.168.0.90:5000` instead.)
 
 ```sh
-docker build -t ferspas-udf:0.1.1 .
-docker save ferspas-udf:0.1.1 | ctr -n k8s.io images import -
+docker build -t ferspas-udf:0.1.2 .
+docker save ferspas-udf:0.1.2 | ctr -n k8s.io images import -
 kubectl apply -f k8s/z/namespace.yaml -f k8s/z/ksvc.yaml
 kubectl get ksvc ferspas-udf -n knative-pool
 curl -sI https://ferspas-udf.yuiseki.com/health
@@ -66,6 +66,31 @@ wildcard hostname on the tunnel pointing at `localhost:30880`, after which a
 
 **3. Nothing else.** Cloudflare's Universal SSL covers the apex and
 first-level subdomains, and `ferspas-udf.yuiseki.net` is one level.
+
+## Caching: only the tiles belong at the edge
+
+A tile is expensive and immutable, so it carries
+`Cache-Control: public, max-age=86400` and Cloudflare holds it. Everything else
+carries `no-cache, must-revalidate`, and `/cache` and `/health` carry
+`no-store` because a cached copy of a live number is a lie rather than a stale
+page.
+
+That split exists because of a specific trap. The pages originally sent no
+`Cache-Control` at all, so Cloudflare applied its own TTL and held the viewer
+HTML. Changing a page then meant purging, and purging the zone threw away the
+tiles as well, which are the expensive half and take minutes of COG reads to
+rebuild. Now a deploy is visible without purging anything: the page revalidates
+and its ETag makes an unchanged one a 304.
+
+If a purge is ever genuinely needed, purge by URL rather than everything.
+Cloudflare's Custom Purge takes a list, so the pages can go without touching a
+single tile:
+
+```
+https://ferspas-udf.yuiseki.net/
+https://ferspas-udf.yuiseki.net/service.json
+https://ferspas-udf.yuiseki.net/analysis
+```
 
 ## After a deploy, the edge may hold the old answer
 

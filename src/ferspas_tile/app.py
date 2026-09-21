@@ -159,6 +159,32 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"]
 )
 
+
+# Only tiles are worth caching at the edge, and only tiles set their own
+# Cache-Control. Everything else left the header off, so Cloudflare applied its
+# own TTL and held the viewer HTML: changing a page then meant purging the
+# zone, which threw away the tiles too. The tiles are the expensive half.
+#
+# So: pages and metadata revalidate every time. They carry an ETag, so an
+# unchanged page is a 304 and costs almost nothing, and a deploy is visible
+# without purging anything.
+NO_CACHE = "no-cache, must-revalidate"
+NEVER_CACHE = "no-store"
+# Live numbers; a cached copy would be a lie rather than a stale page.
+NEVER_CACHE_PATHS = ("/cache", "/health")
+
+
+@app.middleware("http")
+async def set_cache_headers(request, call_next):
+    response = await call_next(request)
+    if "cache-control" in response.headers:
+        return response  # the tile endpoints know what they want
+    path = request.url.path
+    response.headers["Cache-Control"] = (
+        NEVER_CACHE if path in NEVER_CACHE_PATHS else NO_CACHE
+    )
+    return response
+
 # short_id -> index, built once per collection and kept for the process.
 #
 
