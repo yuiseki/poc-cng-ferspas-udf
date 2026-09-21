@@ -13,8 +13,8 @@ their own containerd, which is why `poc-cng-taroverture-openmaptiles` pushes to
 `192.168.0.90:5000` instead.)
 
 ```sh
-docker build -t ferspas-udf:0.1.3 .
-docker save ferspas-udf:0.1.3 | ctr -n k8s.io images import -
+docker build -t ferspas-udf:0.1.4 .
+docker save ferspas-udf:0.1.4 | ctr -n k8s.io images import -
 kubectl apply -f k8s/z/namespace.yaml -f k8s/z/ksvc.yaml
 kubectl get ksvc ferspas-udf -n knative-pool
 curl -sI https://ferspas-udf.yuiseki.com/health

@@ -111,6 +111,7 @@ and the calculation stayed trapped there. Here it is a file.
 | `gdd` | How much usable warmth did a crop get this month? | TMAX-AVG-M, TMIN-AVG-M | degree-days |
 | `diurnal-range` | How far did the temperature swing between afternoon and night? | TMAX-AVG-M, TMIN-AVG-M | K |
 | `change` | Was this month wetter or drier than the same month a year ago? | PF-M twice | mm/month |
+| `growing-conditions` | Was this month both warm enough and wet enough to grow food? | TMAX-AVG-M, TMIN-AVG-M, PF-M, ET0-M | score |
 
 Each analysis carries an `explanation`: a few sentences for someone who does
 not work in agriculture or remote sensing, saying what is being subtracted from
@@ -145,6 +146,20 @@ Why these five, for a reader who does not do agronomy:
 - **Change** is the generalised form of what Case5 of the FAO notebooks did by
   indexing a sorted file list, which quietly compares different years if a file
   appears.
+- **Growing conditions** scores warmth and water separately and keeps the worse
+  one, because a crop needs both and is stopped by whichever is missing. This
+  is Liebig's law of the minimum, and taking a minimum rather than an average
+  is the point: hot and bone dry has to score like wet and frozen, not like
+  somewhere merely adequate at both.
+
+`growing-conditions` is a simplification of the idea behind FAO and IIASA's
+Agro-Ecological Zones, whose Length of Growing Period counts the days where
+temperature and moisture both allow growth. The moisture threshold used here is
+the AEZ one, rainfall over half of reference evapotranspiration. What is
+missing is soil moisture storage and daily resolution. GAEZ's own answer is in
+the same catalogue, as `RES01-LGD` in days per year, along with its thermal and
+moisture yield constraint factors `RES02-FC1` and `RES02-FC2`; this server can
+show those as raw collections.
 
 ### Colour is a contract
 

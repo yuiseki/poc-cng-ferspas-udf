@@ -194,3 +194,79 @@ def test_every_analysis_reads_monthly_collections():
     for spec in REGISTRY.values():
         for source in spec.inputs:
             assert source.short_id.endswith("-M"), f"{spec.id} reads {source.short_id}"
+
+
+# -- growing conditions ----------------------------------------------------
+
+
+def warm_wet(tmean_c, rain_mm, et0_mm):
+    """A stack where both inputs are uniform, for reasoning about one pixel."""
+    return {
+        "tmax": arr(tmean_c + KELVIN),
+        "tmin": arr(tmean_c + KELVIN),
+        "precipitation": arr(rain_mm),
+        "reference_et": arr(et0_mm),
+    }
+
+
+def test_warm_and_wet_scores_full():
+    # 25 C is 15 above base 10, past the point where warmth stops limiting;
+    # rain at half of demand is the AEZ threshold for a growing day.
+    out = run("growing-conditions", warm_wet(25.0, 60.0, 120.0))
+    assert out[0] == pytest.approx(1.0)
+
+
+def test_hot_but_dry_scores_low():
+    out = run("growing-conditions", warm_wet(30.0, 6.0, 200.0))
+    assert out[0] == pytest.approx(0.06, abs=0.01)
+
+
+def test_wet_but_freezing_scores_zero():
+    out = run("growing-conditions", warm_wet(-5.0, 200.0, 20.0))
+    assert out[0] == pytest.approx(0.0)
+
+
+def test_the_worse_of_the_two_decides_not_the_average():
+    # Hot and dry, and cold and wet, must not be rated above a place that is
+    # merely adequate at both. An average would do exactly that.
+    hot_dry = run("growing-conditions", warm_wet(30.0, 5.0, 200.0))[0]
+    cold_wet = run("growing-conditions", warm_wet(-5.0, 200.0, 20.0))[0]
+    adequate = run("growing-conditions", warm_wet(15.0, 40.0, 120.0))[0]
+    assert adequate > hot_dry
+    assert adequate > cold_wet
+
+
+def test_the_base_temperature_moves_the_warmth_half():
+    stack = warm_wet(6.0, 100.0, 100.0)
+    # 6 C grows nothing with a base of 10, but is fine for a base-0 crop.
+    assert run("growing-conditions", stack, {"base_c": 10.0})[0] == pytest.approx(0.0)
+    assert run("growing-conditions", stack, {"base_c": 0.0})[0] > 0.5
+
+
+def test_a_frozen_month_answers_zero_rather_than_unknown():
+    """Siberian winter: -35 C and a reference ET of 0.1 mm for the month.
+
+    Guarding the division by masking made every such pixel missing, and a
+    missing pixel draws as transparent, which through a light basemap reads as
+    a high score. The answer is not unknown: nothing grows at -35 C. Where the
+    air cannot evaporate anything, water is not the constraint, so moisture is
+    full and warmth decides.
+    """
+    out = run(
+        "growing-conditions",
+        {
+            "tmax": arr(239.81),
+            "tmin": arr(236.59),
+            "precipitation": arr(9.24),
+            "reference_et": arr(0.103),
+        },
+    )
+    assert not np.ma.getmaskarray(out)[0]
+    assert out[0] == pytest.approx(0.0)
+
+
+def test_negligible_demand_does_not_make_a_cold_place_look_plantable():
+    frozen = run("growing-conditions", warm_wet(-20.0, 5.0, 0.2))[0]
+    warm = run("growing-conditions", warm_wet(22.0, 60.0, 110.0))[0]
+    assert frozen == pytest.approx(0.0)
+    assert warm > frozen
