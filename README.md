@@ -223,6 +223,23 @@ The index lists every analysis with the question it answers, its inputs, its
 colour ramp and how to read it, then the raw collections with the longest time
 series. Each entry links to its own map.
 
+A cold analysis tile is two COG reads over HTTPS, several seconds, so the
+viewer says when it is waiting. The date changes the instant it is asked for,
+the map fades and a spinner appears until the tiles for that month have
+arrived, and playback waits for each frame instead of advancing on a timer that
+outruns it.
+
+Each load carries an epoch, because a load that finishes after you have moved
+on must not clear the indicator for the month that is still loading. Measured:
+jump to an uncached month, jump again a second later, and the panel stays in
+its loading state until the second month is drawn, not the first.
+
+Stepping is debounced by 250 ms, so holding a key does not queue a load per
+repeat. Deliberate steps a second apart do each fetch their month, which is
+what was asked for; before the indicator existed, three such steps issued 80
+tile requests across four months with nothing on screen to say why the map had
+not changed.
+
 There are three ways to move through time, because a phone has none of the
 keyboard and a slider thumb is not a touch target: buttons either side of
 `play`, the slider, and the left and right arrow keys. The buttons are 44 px

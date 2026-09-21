@@ -57,6 +57,23 @@
   .ramp { height: 10px; border-radius: 5px; flex: 1 1 140px; min-width: 120px;
     border: 1px solid var(--line); }
   .hint { font-size: 12px; color: var(--muted); }
+  /* Shown only while tiles are on their way. The date has already changed by
+     then, so without this the map looks stuck rather than busy. */
+  .spinner, .loading-text { display: none; }
+  .panel.loading .spinner, .panel.loading .loading-text { display: inline-block; }
+  .panel.loading .hint { display: none; }
+  .spinner { width: 13px; height: 13px; border-radius: 50%;
+    border: 2px solid var(--line); border-top-color: var(--accent);
+    animation: spin .8s linear infinite; }
+  .loading-text { font-size: 12px; color: var(--muted); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation: none; border-top-color: var(--line); }
+  }
+  /* The map keeps showing the previous month while the next one loads; fading
+     it says which part of the screen is out of date. */
+  .maplibregl-canvas { transition: opacity .2s; }
+  body.loading-tiles .maplibregl-canvas { opacity: .72; }
   .why { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
   details { margin-top: 10px; }
   summary { font-size: 13px; color: var(--accent); cursor: pointer;
@@ -76,7 +93,7 @@
 </head>
 <body>
 <div id="map"></div>
-<div class="panel">
+<div class="panel" id="panel">
   <div class="row">
     <h1 id="title">loading</h1>
     <span class="muted" id="sub"></span>
@@ -84,6 +101,8 @@
   <div class="row">
     <a class="back" href="/">&larr; Return to index</a>
     <time id="stamp">&mdash;</time>
+    <span class="spinner" aria-hidden="true"></span>
+    <span class="loading-text" role="status">loading tiles</span>
     <span class="hint">&larr; &rarr; to step</span>
   </div>
   <div class="row steps">
@@ -122,7 +141,28 @@ const el = (id) => document.getElementById(id);
 const [, , kind, target] = location.pathname.split("/");
 const isAnalysis = kind === "analysis";
 
-let times = [], current = 0, timer = null, meta = null, spec = null;
+let times = [], current = 0, meta = null, spec = null;
+
+// Loading state.
+//
+// A cold analysis tile is two COG reads, several seconds. Three things follow.
+//
+// The date has to update the moment it is asked for, or the controls feel
+// broken while the map is still on the previous month.
+//
+// Moving again before the tiles arrive must not leave a load running for a
+// month nobody is looking at. Measured before this existed: stepping three
+// times at 1.5 s intervals issued 80 tile requests across four months and the
+// server computed every one of them. So the request is debounced, and only
+// the month you settle on is fetched.
+//
+// A load that finishes late must not clear the indicator for the month that
+// is still loading, so each load carries an epoch and only the current one
+// counts.
+let epoch = 0;
+let inFlight = null;
+let debounce = null;
+let playing = false;
 
 const map = new Map({
   container: "map",
@@ -137,19 +177,56 @@ const tileUrl = (t) => isAnalysis
   ? `${API}/analysis/${target}/${t}/{z}/{x}/{y}.png`
   : `${API}/tiles/${target}/${t}/{z}/{x}/{y}.png`;
 
+function setLoading(on) {
+  el("panel").classList.toggle("loading", on);
+  document.body.classList.toggle("loading-tiles", on);
+}
+
 function setFrame(i) {
   if (!times.length) return;
   current = Math.max(0, Math.min(times.length - 1, i));
-  const t = times[current];
-  el("stamp").textContent = t;
+  // Immediately, before any network work: the controls answer at once.
+  el("stamp").textContent = times[current];
   el("slider").value = current;
   el("prev").disabled = current === 0;
   el("next").disabled = current === times.length - 1;
+
+  clearTimeout(debounce);
+  setLoading(true);
+  debounce = setTimeout(applyTiles, 250);
+}
+
+function applyTiles() {
   const src = map.getSource("ferspas");
-  if (src) src.setTiles([tileUrl(t)]);
+  if (!src) return;
+  inFlight = ++epoch;
+  src.setTiles([tileUrl(times[current])]);
+}
+
+// `idle` is the only event that means "nothing left to fetch or draw".
+// `sourcedata` with isSourceLoaded fires as soon as the source description is
+// usable, which for a raster source with an explicit tiles template is
+// immediately, long before a single tile has arrived.
+map.on("idle", () => {
+  if (inFlight === null || inFlight !== epoch) return;
+  inFlight = null;
+  setLoading(false);
+});
+
+function loaded() {
+  return new Promise((resolve) => {
+    if (inFlight === null) return resolve();
+    const done = () => {
+      if (inFlight !== null) return;   // a later load superseded this wait
+      map.off("idle", done);
+      resolve();
+    };
+    map.on("idle", done);
+  });
 }
 
 function addLayer() {
+  inFlight = ++epoch;
   map.addSource("ferspas", {
     type: "raster", tiles: [tileUrl(times[current])], tileSize: 256,
     minzoom: 0, maxzoom: 8, bounds: [-180, -85, 180, 85],
@@ -182,10 +259,25 @@ function paintAnalysisRamp(a) {
 }
 
 function stopPlaying() {
-  if (!timer) return;
-  clearInterval(timer);
-  timer = null;
+  if (!playing) return;
+  playing = false;
   el("play").textContent = "play";
+}
+
+// Advancing on a fixed timer outruns the tiles: at 900 ms a step and several
+// seconds a frame, playback leaves a queue of months nobody sees. So it waits
+// for the frame it asked for before asking for the next one.
+async function play() {
+  playing = true;
+  el("play").textContent = "pause";
+  while (playing) {
+    await loaded();
+    if (!playing) break;
+    await new Promise((r) => setTimeout(r, 400));
+    if (!playing) break;
+    setFrame(current + 1 >= times.length ? 0 : current + 1);
+    await new Promise((r) => setTimeout(r, 300));
+  }
 }
 
 // Left and right step through time from anywhere on the page.
@@ -223,9 +315,8 @@ el("prev").addEventListener("click", () => step(-1));
 el("next").addEventListener("click", () => step(1));
 
 el("play").addEventListener("click", () => {
-  if (timer) { stopPlaying(); return; }
-  el("play").textContent = "pause";
-  timer = setInterval(() => setFrame(current + 1 >= times.length ? 0 : current + 1), 900);
+  if (playing) stopPlaying();
+  else play();
 });
 
 // A phone screen is mostly panel once the explanation is open, so it starts

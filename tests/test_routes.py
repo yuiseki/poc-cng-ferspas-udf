@@ -111,3 +111,18 @@ def test_the_viewer_offers_buttons_for_a_phone(client):
     assert 'id="next"' in page
     assert 'aria-label="previous month"' in page
     assert 'aria-label="next month"' in page
+
+
+def test_the_viewer_reports_when_tiles_are_loading(client):
+    page = client.get(f"/viewer/analysis/{next(iter(REGISTRY))}").text
+    assert 'class="spinner"' in page
+    assert "loading tiles" in page
+    assert 'role="status"' in page  # announced, not only drawn
+
+
+def test_the_viewer_guards_against_a_stale_load_finishing_last(client):
+    # A load that finishes after you have moved on must not clear the
+    # indicator for the month still loading.
+    page = client.get(f"/viewer/analysis/{next(iter(REGISTRY))}").text
+    assert "inFlight !== epoch" in page
+    assert 'map.on("idle"' in page
