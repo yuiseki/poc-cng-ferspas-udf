@@ -477,24 +477,34 @@ def analysis_tile(
         params["offset_days"] = offset_days
 
     def read(source: Any) -> tuple[str, Any, Any]:
-        offset = source.offset_days
         if source.role == "earlier" and "offset_days" in params:
-            offset = int(params["offset_days"])
-        at = shift(time, offset) if offset else time
+            at = shift(time, int(params["offset_days"]))
+        else:
+            at = source.resolve(time)
         window, frame = _read_window(source.short_id, at, z, x, y)
         return source.role, window, frame
 
     # The inputs are independent objects over HTTP, so opening them one after
     # another pays the connect-and-header cost twice in series. Cold, that is
     # the whole latency: measured 6.3 s serial against 3.4 s in parallel.
+    # An analysis that reads a whole climatology reads dozens of frames, and
+    # they stay parallel: thirty frames measured about 7 s against 4 s for one,
+    # because the cost is the per-file HTTPS open rather than the bytes.
     stack: dict[str, np.ma.MaskedArray] = {}
     sources: list[str] = []
-    with ThreadPoolExecutor(max_workers=len(spec.inputs)) as pool:
+    # Which instant each input actually landed on. An offset that runs off the
+    # start of the record resolves to the earliest frame there is, which is a
+    # different calendar month; only the calculation can decide whether that
+    # still answers its question, so it is told rather than left to assume.
+    resolved: dict[str, str] = {}
+    with ThreadPoolExecutor(max_workers=min(48, len(spec.inputs))) as pool:
         for role, window, frame in pool.map(read, spec.inputs):
             if window is None:
                 return Response(b"", status_code=204)
             stack[role] = window
+            resolved[role] = frame.time
             sources.append(frame.href)
+    params["frames"] = resolved
 
     result = spec.compute(stack, params)
     low, high = spec.rescale

@@ -112,6 +112,16 @@ and the calculation stayed trapped there. Here it is a file.
 | `diurnal-range` | How far did the temperature swing between afternoon and night? | TMAX-AVG-M, TMIN-AVG-M | K |
 | `change` | Was this month wetter or drier than the same month a year ago? | PF-M twice | mm/month |
 | `growing-conditions` | Was this month both warm enough and wet enough to grow food? | TMAX-AVG-M, TMIN-AVG-M, PF-M, ET0-M | score |
+| `month-percentile` | Was this month's rain unusual for the time of year? | PF-M x 40 | percentile |
+| `dependable-rainfall` | What can a farmer count on four years in five? | PF-M x 40 | mm/month |
+| `rainfall-variability` | How unreliable is the rain here? | PF-M x 40 | % |
+| `consecutive-dry-months` | How long does this place go without usable rain? | PF-M x 12, ET0-M x 12 | months |
+| `aridity-annual` | Can a year of rain meet a year of demand? | PF-M x 12, ET0-M x 12 | ratio |
+| `fournier-erosivity` | How hard is the rain on bare soil? | PF-M x 12 | mm |
+| `gdd-shift` | Is there more usable warmth than twenty years ago? | TMAX-AVG-M, TMIN-AVG-M, twice | degree-days |
+| `night-warming` | Are the nights warmer than in 1979 to 1998? | TMIN-AVG-M x 21 | K |
+| `livestock-heat` | How hard is this afternoon's heat on cattle? | TMAX, RH15 (daily) | index |
+| `months-since-rain` | How long since this place had usable rain? | PF-M x 24 | months |
 
 Each analysis carries an `explanation`: a few sentences for someone who does
 not work in agriculture or remote sensing, saying what is being subtracted from
@@ -121,7 +131,12 @@ explanation is too short to explain anything.
 
 ### Monthly, not daily
 
-The analyses read the monthly AgERA5 collections rather than the daily ones.
+The analyses read the monthly AgERA5 collections rather than the daily ones,
+with one exception: `livestock-heat` reads the daily maximum temperature and
+the 3 pm relative humidity, because heat stress happens on an afternoon and the
+average of thirty afternoons is not one. Its time axis is 16,697 frames rather
+than 571, which is the cost. A test names that exception and checks nothing
+else has quietly joined it.
 Daily is finer than this needs: at one frame a day a slider covers 16,997
 frames and a year of scrubbing shows mostly weather, while at one a month it
 covers 571 and shows seasons. It also matters to the arithmetic. An aridity
@@ -339,6 +354,24 @@ exported by conda point at a PROJ database older than the one in rasterio's
 wheel, and `CRS.from_epsg(3857)` fails at import time with
 `DATABASE.LAYOUT.VERSION.MINOR = 4 whereas a number >= 6 is expected`. The
 server drops those variables before importing rasterio.
+
+**"The same month, twenty years ago" cannot be said in days.** `offset_days`
+drifts: four years of -365 lands on the 2nd of the month, twenty years on the
+20th, and since the index takes the frame at or before the instant, a monthly
+comparison silently lands in the month before. An `Input` therefore also takes
+`offset_months`, and a baseline period stated in calendar years takes `at_year`,
+because a baseline that slides with the date being viewed is not a baseline.
+
+**Reading thirty frames costs about as much as reading one.** A percentile
+against forty years of the same calendar month is 40 COG reads for one tile,
+and it measured about 7 s against 4 s for a single frame, because the reads run
+in parallel and the cost is the HTTPS open per file rather than the bytes. So
+`climatology.py` reads the whole stack and reduces it per pixel rather than
+trying to be clever. What does need care is the end of the record: an offset
+that runs off the front of it comes back as the earliest frame there is, which
+is a real array of the wrong calendar month. The server records which instant
+each input landed on, and the stack stops at the first one that did not land
+where it was sent.
 
 **An analysis costs about as much as its slowest input.** Cold, a two-input tile
 took 6.3 s when the inputs were opened one after the other and 3.4 s when they

@@ -188,12 +188,27 @@ def test_every_analysis_explains_itself_in_plain_words():
         assert spec.explanation.strip().endswith("."), spec.id
 
 
-def test_every_analysis_reads_monthly_collections():
-    # Daily is finer than this proof of concept needs, and a monthly aridity
-    # ratio is the interval the index is actually defined over.
+# Daily is finer than most of this needs, and a monthly aridity ratio is the
+# interval the index is actually defined over. The exception is named here
+# rather than left to whoever adds the next analysis, and it is named with its
+# reason: heat stress happens on an afternoon, and the average of thirty
+# afternoons is not one.
+DAILY_ANALYSES = {"livestock-heat"}
+
+
+def test_every_analysis_reads_monthly_collections_unless_it_is_listed():
     for spec in REGISTRY.values():
+        if spec.id in DAILY_ANALYSES:
+            continue
         for source in spec.inputs:
             assert source.short_id.endswith("-M"), f"{spec.id} reads {source.short_id}"
+
+
+def test_an_analysis_that_reads_daily_frames_says_why_in_its_notes():
+    for analysis_id in DAILY_ANALYSES:
+        spec = REGISTRY[analysis_id]
+        assert not any(i.short_id.endswith("-M") for i in spec.inputs), spec.id
+        assert "daily" in spec.notes, spec.id
 
 
 # -- growing conditions ----------------------------------------------------
@@ -270,3 +285,320 @@ def test_negligible_demand_does_not_make_a_cold_place_look_plantable():
     warm = run("growing-conditions", warm_wet(22.0, 60.0, 110.0))[0]
     assert frozen == pytest.approx(0.0)
     assert warm > frozen
+
+
+# -- the analyses that read many frames -------------------------------------
+#
+# Each of these is handed a stack keyed the way the server keys it, one entry
+# per frame, newest first. The helpers below build one.
+
+
+def stack_of(prefix, values):
+    """One pixel per frame: {"y00": [v0], "y01": [v1], ...}."""
+    return {f"{prefix}{k:02d}": arr(float(v)) for k, v in enumerate(values)}
+
+
+def pixel(out):
+    assert not np.ma.getmaskarray(out)[0], "the answer came back masked"
+    return float(out[0])
+
+
+# 1. month-percentile
+
+
+def test_month_percentile_ranks_this_month_among_its_own_history():
+    # this July is the wettest of eleven, so it sits at the top of the ramp
+    wettest = stack_of("y", [300.0] + [10.0 * k for k in range(1, 11)])
+    assert pixel(run("month-percentile", wettest)) == pytest.approx(
+        100.0 * 10.5 / 11
+    )
+    # and the driest sits at the bottom, not at zero: it is one of the eleven
+    driest = stack_of("y", [1.0] + [10.0 * k for k in range(1, 11)])
+    assert pixel(run("month-percentile", driest)) == pytest.approx(100.0 * 0.5 / 11)
+
+
+def test_month_percentile_puts_a_median_month_at_the_neutral_colour():
+    # eleven years, five drier than this one and five wetter
+    values = [50.0] + [float(v) for v in (10, 20, 30, 40, 45, 60, 70, 80, 90, 100)]
+    assert pixel(run("month-percentile", stack_of("y", values))) == pytest.approx(50.0)
+
+
+def test_month_percentile_needs_a_real_distribution_behind_it():
+    """Six years is an anecdote, not a percentile, so it is left blank."""
+    out = run("month-percentile", stack_of("y", [10.0] * 6))
+    assert np.ma.getmaskarray(out)[0]
+
+
+# 2. dependable-rainfall
+
+
+def test_dependable_rainfall_is_the_one_year_in_five_amount():
+    # 0, 10, 20 ... 100: the 20th percentile of eleven values is 20
+    out = run("dependable-rainfall", stack_of("y", [10.0 * k for k in range(11)]))
+    assert pixel(out) == pytest.approx(20.0)
+
+
+def test_dependable_rainfall_is_below_the_average_in_a_variable_place():
+    """The reason it is not the mean: a few wet years pull an average up.
+
+    A crop chosen on the average then fails in every unremarkable year.
+    """
+    variable = [0.0] * 8 + [400.0, 500.0, 600.0]
+    dependable = pixel(run("dependable-rainfall", stack_of("y", variable)))
+    assert dependable == pytest.approx(0.0)
+    assert dependable < float(np.mean(variable))
+
+
+# 3. rainfall-variability
+
+
+def test_rainfall_variability_is_the_spread_as_a_share_of_the_average():
+    values = [80.0, 120.0] * 6  # mean 100, population deviation 20
+    assert pixel(run("rainfall-variability", stack_of("y", values))) == pytest.approx(
+        20.0
+    )
+
+
+def test_a_place_with_no_rain_reads_as_wholly_undependable_not_as_missing():
+    """The Sahara divided by nothing.
+
+    Masking it would leave the largest desert on earth transparent, and
+    transparent over a light basemap reads as a low value. Rain that is absent
+    is not rain whose reliability is unknown.
+    """
+    out = run("rainfall-variability", stack_of("y", [0.0] * 12))
+    assert not np.ma.getmaskarray(out)[0]
+    assert pixel(out) == pytest.approx(150.0)
+
+
+def test_steady_rain_scores_far_below_the_marginal_line():
+    steady = pixel(run("rainfall-variability", stack_of("y", [100.0] * 12)))
+    erratic = pixel(
+        run("rainfall-variability", stack_of("y", [0.0, 0.0, 300.0, 900.0] * 3))
+    )
+    assert steady == pytest.approx(0.0)
+    assert erratic > 30.0  # the conventional line for marginal rainfed cropping
+
+
+# 4. consecutive-dry-months
+
+
+def dry_year(rain, demand):
+    stack = stack_of("p", rain)
+    stack.update(stack_of("e", demand))
+    return stack
+
+
+def test_consecutive_dry_months_takes_the_longest_run_not_the_count():
+    # eight dry months in total, but the longest unbroken run is five
+    rain = [0.0] * 5 + [100.0] * 4 + [0.0] * 3
+    demand = [100.0] * 12
+    assert pixel(run("consecutive-dry-months", dry_year(rain, demand))) == 5.0
+
+
+def test_a_month_is_dry_below_half_of_what_the_air_can_evaporate():
+    demand = [100.0] * 12
+    assert pixel(run("consecutive-dry-months", dry_year([49.0] * 12, demand))) == 12.0
+    assert pixel(run("consecutive-dry-months", dry_year([51.0] * 12, demand))) == 0.0
+
+
+def test_a_frozen_month_is_not_counted_as_a_dry_one():
+    """Siberia in winter: almost no rain, and almost no demand either.
+
+    There is no moisture deficit in a month where the air can evaporate a
+    tenth of a millimetre, and counting one would paint the whole Arctic as a
+    twelve-month drought.
+    """
+    out = run("consecutive-dry-months", dry_year([2.0] * 12, [0.1] * 12))
+    assert pixel(out) == 0.0
+
+
+# 5. aridity-annual
+
+
+def test_aridity_annual_sums_the_year_before_dividing():
+    """Not the average of twelve monthly ratios, which is a different number.
+
+    A Mediterranean winter runs far above demand and a summer has none; the
+    monthly ratios average to something humid, while the year's totals say
+    semi-arid, and semi-arid is what the place is.
+    """
+    rain = [200.0] * 3 + [0.0] * 9
+    demand = [20.0] * 3 + [200.0] * 9
+    out = run("aridity-annual", dry_year(rain, demand))
+    assert pixel(out) == pytest.approx(600.0 / 1860.0)
+    monthly_ratios = np.mean([200 / 20] * 3 + [0.0] * 9)
+    assert pixel(out) < monthly_ratios
+
+
+def test_aridity_annual_puts_a_desert_in_the_arid_class():
+    out = run("aridity-annual", dry_year([2.0] * 12, [250.0] * 12))
+    assert pixel(out) == pytest.approx(24.0 / 3000.0)
+    assert pixel(out) < 0.05  # hyper-arid
+
+
+def test_a_place_the_air_cannot_evaporate_from_is_answered_not_masked():
+    out = run("aridity-annual", dry_year([1.0] * 12, [0.0] * 12))
+    assert not np.ma.getmaskarray(out)[0]
+    assert pixel(out) == pytest.approx(1.0)
+
+
+# 6. fournier-erosivity
+
+
+def test_fournier_rises_when_the_same_rain_arrives_in_fewer_months():
+    even = pixel(run("fournier-erosivity", stack_of("p", [100.0] * 12)))
+    concentrated = pixel(
+        run("fournier-erosivity", stack_of("p", [400.0] * 3 + [0.0] * 9))
+    )
+    assert even == pytest.approx(100.0)
+    assert concentrated == pytest.approx(400.0)
+    assert concentrated > even  # same 1200 mm, four times the erosivity
+
+
+def test_a_year_without_rain_is_zero_erosivity_rather_than_unknown():
+    out = run("fournier-erosivity", stack_of("p", [0.0] * 12))
+    assert not np.ma.getmaskarray(out)[0]
+    assert pixel(out) == 0.0
+
+
+# 7. gdd-shift
+
+
+def warmth(tmax_c, tmin_c, tmax_then_c, tmin_then_c):
+    return {
+        "tmax": arr(tmax_c + KELVIN),
+        "tmin": arr(tmin_c + KELVIN),
+        "tmax_then": arr(tmax_then_c + KELVIN),
+        "tmin_then": arr(tmin_then_c + KELVIN),
+    }
+
+
+def test_gdd_shift_is_the_difference_between_two_julys():
+    # now: 24/16 -> mean 20 -> 10 above base, over 31 days
+    # then: 22/14 -> mean 18 ->  8 above base, over 31 days
+    out = run("gdd-shift", warmth(24.0, 16.0, 22.0, 14.0))
+    assert pixel(out) == pytest.approx((10.0 - 8.0) * 31)
+
+
+def test_gdd_shift_caps_the_afternoon_at_thirty():
+    """Above 30 C maize gains no further development.
+
+    Without the cap the hot lowlands would show the largest gains anywhere,
+    which reads as land improving where the truth is the opposite.
+    """
+    already_hot = run("gdd-shift", warmth(40.0, 24.0, 34.0, 24.0))
+    assert pixel(already_hot) == pytest.approx(0.0)
+    still_below = run("gdd-shift", warmth(28.0, 24.0, 26.0, 24.0))
+    assert pixel(still_below) > 0.0
+
+
+def test_gdd_shift_uses_the_length_of_each_month():
+    stack = warmth(24.0, 16.0, 22.0, 14.0)
+    february = run("gdd-shift", stack, {"time": "2026-02-01"})
+    # February 2026 has 28 days and February 2006 had 28 as well
+    assert pixel(february) == pytest.approx(2.0 * 28)
+
+
+def test_gdd_shift_reaches_back_in_months_not_days():
+    from ferspas_tile.functions import REGISTRY as R
+
+    offsets = {i.role: i.offset_months for i in R["gdd-shift"].inputs}
+    assert offsets["tmax_then"] == -240
+    assert all(i.offset_days == 0 for i in R["gdd-shift"].inputs)
+
+
+# 8. night-warming
+
+
+def baseline(now_c, years_c):
+    stack = {"tmin": arr(now_c + KELVIN)}
+    for year, value in zip(range(1979, 1999), years_c):
+        stack[f"b{year}"] = arr(value + KELVIN)
+    return stack
+
+
+def test_night_warming_subtracts_the_mean_of_the_baseline_years():
+    out = run("night-warming", baseline(21.5, [20.0] * 10 + [21.0] * 10))
+    assert pixel(out) == pytest.approx(21.5 - 20.5)
+
+
+def test_night_warming_is_a_difference_so_kelvin_needs_no_conversion():
+    out = run("night-warming", baseline(20.0, [20.0] * 20))
+    assert pixel(out) == pytest.approx(0.0)
+
+
+def test_the_night_warming_baseline_is_fixed_in_calendar_years():
+    """A baseline that slides with the date being viewed is not a baseline."""
+    from ferspas_tile.functions import REGISTRY as R
+
+    years = sorted(i.at_year for i in R["night-warming"].inputs if i.at_year)
+    assert years == list(range(1979, 1999))
+    assert R["night-warming"].inputs[0].at_year is None  # the month being asked about
+
+
+# 10. months-since-rain
+
+
+def test_months_since_rain_counts_back_to_the_last_wet_month():
+    rain = [0.0, 0.0, 0.0, 40.0] + [0.0] * 20
+    assert pixel(run("months-since-rain", stack_of("p", rain))) == 3.0
+
+
+def test_it_rained_this_month_is_zero():
+    assert pixel(run("months-since-rain", stack_of("p", [30.0] + [0.0] * 23))) == 0.0
+
+
+def test_twenty_millimetres_is_the_bar_and_a_drizzle_does_not_clear_it():
+    assert pixel(run("months-since-rain", stack_of("p", [19.0] + [30.0] * 23)) ) == 1.0
+    assert pixel(run("months-since-rain", stack_of("p", [21.0] + [0.0] * 23))) == 0.0
+
+
+def test_a_place_that_never_rains_reads_as_the_whole_window():
+    """The top of the scale means "at least", not "exactly".
+
+    The hyper-arid cores of the Sahara and the Atacama have gone longer than
+    this map can see, which is what the notes say.
+    """
+    out = run("months-since-rain", stack_of("p", [0.0] * 24))
+    assert not np.ma.getmaskarray(out)[0]
+    assert pixel(out) == 24.0
+
+
+# 9. livestock-heat
+
+
+def test_the_heat_index_is_worse_in_humid_air_than_in_dry_air():
+    """35 C in a desert is easier on a cow than 30 C in a wet monsoon.
+
+    A map of temperature alone says the opposite, which is the whole reason
+    for combining the two.
+    """
+    dry = pixel(run("livestock-heat", {"tmax": arr(35 + KELVIN), "humidity": arr(10.0)}))
+    humid = pixel(
+        run("livestock-heat", {"tmax": arr(30 + KELVIN), "humidity": arr(85.0)})
+    )
+    assert humid > dry
+
+
+def test_the_heat_index_matches_the_published_form():
+    # T = 30 C, RH = 60: (1.8*30+32) - (0.55 - 0.0055*60) * (1.8*30 - 26)
+    out = run("livestock-heat", {"tmax": arr(30 + KELVIN), "humidity": arr(60.0)})
+    expected = 86.0 - (0.55 - 0.33) * 28.0
+    assert pixel(out) == pytest.approx(expected)
+
+
+def test_the_heat_index_lands_in_its_operational_classes():
+    # The published classes. They cannot be imported: the file is named after
+    # the id it declares, and no import statement accepts a hyphen.
+    MILD, MODERATE, SEVERE = 72.0, 80.0, 90.0
+
+    comfortable = pixel(
+        run("livestock-heat", {"tmax": arr(18 + KELVIN), "humidity": arr(50.0)})
+    )
+    hard = pixel(
+        run("livestock-heat", {"tmax": arr(38 + KELVIN), "humidity": arr(70.0)})
+    )
+    assert comfortable < MILD
+    assert hard > SEVERE
+    assert MILD < MODERATE < SEVERE

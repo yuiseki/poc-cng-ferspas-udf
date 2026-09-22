@@ -38,6 +38,7 @@ not know which. Anything evaluative belongs in the legend text, not the ramp.
 
 from __future__ import annotations
 
+import calendar
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Callable
@@ -62,6 +63,36 @@ class Input:
     # Anything else is resolved against the collection's own timestamps.
     offset_days: int = 0
     role: str = "value"
+    # Whole calendar months back or forward, for anything that has to land on
+    # the same calendar month of another year. Days cannot express that: leap
+    # days accumulate, so -365 * 4 lands on the 31st of the month before, and
+    # a reader comparing "the same July" would silently get June.
+    offset_months: int = 0
+    # The same calendar month of one fixed year, whatever year was asked for.
+    # A baseline period is stated in calendar years ("1979 to 1998"), not as a
+    # distance from the request, and an offset would slide with the request.
+    at_year: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.offset_days and self.offset_months:
+            raise ValueError(
+                f"{self.short_id}: give an offset in days or in months, not both"
+            )
+        if self.at_year is not None and (self.offset_days or self.offset_months):
+            raise ValueError(
+                f"{self.short_id}: at_year is absolute; it takes no offset"
+            )
+
+    def resolve(self, time: str) -> str:
+        """The instant this input wants, given the instant that was asked for."""
+        if self.at_year is not None:
+            when = date.fromisoformat(time)
+            return date(self.at_year, when.month, 1).isoformat()
+        if self.offset_months:
+            return shift_months(time, self.offset_months)
+        if self.offset_days:
+            return shift(time, self.offset_days)
+        return time
 
 
 @dataclass(frozen=True)
@@ -137,7 +168,13 @@ class Analysis:
             "explanation": self.explanation,
             "unit": self.unit,
             "inputs": [
-                {"collection": i.short_id, "role": i.role, "offset_days": i.offset_days}
+                {
+                    "collection": i.short_id,
+                    "role": i.role,
+                    "offset_days": i.offset_days,
+                    "offset_months": i.offset_months,
+                    "at_year": i.at_year,
+                }
                 for i in self.inputs
             ],
             "parameters": [
@@ -160,3 +197,25 @@ class Analysis:
 def shift(time: str, days: int) -> str:
     """Move a YYYY-MM-DD string by whole days."""
     return (date.fromisoformat(time) + timedelta(days=days)).isoformat()
+
+
+def shift_months(time: str, months: int) -> str:
+    """Move a YYYY-MM-DD string by whole calendar months.
+
+    "The same month, twenty years ago" is not 7305 days ago. Leap days
+    accumulate: four years of -365 lands on the 30th of the previous month, and
+    twenty lands five days earlier still, so an analysis meant to compare two
+    Julys quietly compares July with June. Frames here are monthly, and the
+    index takes the frame at or before the instant, so that error is invisible
+    in the output and wrong by a whole month.
+
+    The day of the month is kept where the target month is long enough and
+    clamped to its last day where it is not, so the 31st of a long month lands
+    on the 28th or 29th of February rather than overflowing into March.
+    """
+    when = date.fromisoformat(time)
+    total = (when.year * 12 + when.month - 1) + months
+    year, month = divmod(total, 12)
+    month += 1
+    day = min(when.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day).isoformat()
