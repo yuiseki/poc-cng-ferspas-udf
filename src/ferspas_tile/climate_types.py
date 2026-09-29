@@ -33,6 +33,21 @@ sequential ramp they would have been neighbouring shades.
 The shares are of a sample that is four months of the whole globe, so "frozen"
 being the largest is the winter hemisphere and the poles, not a claim about
 where people live. A month is classified, not a place.
+
+A label read off a centre can still be wrong about the members, so the members
+were checked. Below is the 5th percentile, median and 95th percentile within
+each type, and the share of each type where rainfall falls short of demand:
+
+    frozen        tmax -55.3 / -30.6 / -19.8 C          short of water  29.5%
+    cool          tmax -16.5 /  -4.4 /  13.4 C          short of water  41.8%
+    hot and dry   tmax  15.4 /  26.5 /  38.5 C          short of water  89.6%
+    hot and wet   rain 165.0 / 243.0 / 522.8 mm         short of water   0.0%
+
+That was worth doing. On the July map the hot and dry type reaches Scandinavia
+and Siberia, which looked like the label overreaching; the spread says it does
+not, because the coldest twentieth of that type is still 15 C and nine in ten
+of it are short of water. The two wet and dry types do not overlap at all on
+that last measure, which is the separation the classification exists for.
 """
 
 from __future__ import annotations

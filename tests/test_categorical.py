@@ -147,6 +147,24 @@ def test_a_frozen_month_is_the_first_type_and_a_soaked_one_is_the_last():
     assert pixel(classify(soaked)) == len(CENTRES) - 1
 
 
+def test_the_labels_hold_at_the_edges_of_their_measured_ranges():
+    """The labels were read off the centres; these are the members.
+
+    Measured over the fitted sample, the coldest twentieth of the hot and dry
+    type is still 15.4 C and the driest twentieth of the hot and wet type still
+    gets 165 mm. A month at each of those edges has to keep the label its own
+    type claims, or the name is describing a centre nobody lives at.
+    """
+    cold_edge_of_hot_and_dry = stack_of(29.2, 134.3, 15.4, 5.0)
+    assert LABELS[int(pixel(classify(cold_edge_of_hot_and_dry)))] == "Hot and dry"
+
+    dry_edge_of_hot_and_wet = stack_of(165.0, 105.2, 27.5, 20.5)
+    assert LABELS[int(pixel(classify(dry_edge_of_hot_and_wet)))] == "Hot and wet"
+
+    warm_edge_of_cool = stack_of(33.1, 27.4, 13.4, 5.8)
+    assert LABELS[int(pixel(classify(warm_edge_of_cool)))] == "Cool"
+
+
 def test_classifying_keeps_the_mask():
     masked = average_month()
     masked["demand"] = np.ma.masked_array([50.0], mask=[True])
