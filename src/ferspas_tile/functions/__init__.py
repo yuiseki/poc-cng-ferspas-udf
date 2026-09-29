@@ -8,6 +8,19 @@ under a name nobody expects.
 Ids contain hyphens, which no Python import statement will accept, so each file
 is loaded from its path. That is the price of "the filename is the id", and it
 is worth paying: a reader looking for `water-balance` finds `water-balance.py`.
+
+`__draft/` holds analyses that work but are not served. They are there for one
+measured reason. An analysis in this directory reads two to four frames per
+tile; each one in `__draft/` reads twelve to forty, because it compares a month
+against decades of the same month. The GDAL settings in `config.py` were tuned
+for the first case: `VSI_CACHE_SIZE` is half a gigabyte and GDAL applies it per
+file handle, so forty handles at once is a different machine. Six concurrent
+forty-frame tiles took the process from 325 MiB to 1106 MiB, and a browser
+opening one of those viewers asks for about that many at once, which killed the
+pod against its 2 GiB limit and returned 502 for some tiles.
+
+So the draft analyses are not wrong, and their tests still run. They are
+waiting on the read path being sized for them rather than on being fixed.
 """
 
 from __future__ import annotations
@@ -18,6 +31,7 @@ from pathlib import Path
 from ..analysis import Analysis
 
 FUNCTIONS_DIR = Path(__file__).resolve().parent
+DRAFT_DIR = FUNCTIONS_DIR / "__draft"
 
 REGISTRY: dict[str, Analysis] = {}
 
@@ -55,6 +69,16 @@ def load_functions(directory: Path | None = None) -> dict[str, Analysis]:
     return found
 
 
+def load_drafts() -> dict[str, Analysis]:
+    """The analyses in `__draft/`, which the server does not serve.
+
+    Only the tests call this. It exists so that a draft stays under test
+    instead of becoming a file nobody runs.
+    """
+    return load_functions(DRAFT_DIR)
+
+
 # Loaded at import: a broken analysis file should stop the server rather than
-# disappear from the registry and look like it was never written.
+# disappear from the registry and look like it was never written. A subdirectory
+# is not matched by the glob, so `__draft/` is skipped here without a check.
 REGISTRY.update(load_functions())

@@ -2,7 +2,14 @@ import numpy as np
 import pytest
 
 from ferspas_tile.analysis import KELVIN, shift
-from ferspas_tile.functions import REGISTRY
+from ferspas_tile.functions import REGISTRY, load_drafts
+
+DRAFTS = load_drafts()
+# The drafts are not served, but they are still analyses and the tests below
+# were written against them. Everything that asks "is this a well formed
+# analysis" runs over both; only the tests about what the server offers use
+# REGISTRY alone.
+ALL = {**REGISTRY, **DRAFTS}
 
 
 def arr(*values):
@@ -10,7 +17,7 @@ def arr(*values):
 
 
 def run(analysis_id, stack, params=None):
-    spec = REGISTRY[analysis_id]
+    spec = ALL[analysis_id]
     # The server always supplies the instant; a monthly total needs it.
     defaults = {"time": "2026-07-01"}
     defaults.update({p.name: p.default for p in spec.parameters})
@@ -18,8 +25,13 @@ def run(analysis_id, stack, params=None):
     return spec.compute(stack, defaults)
 
 
-def test_every_registered_analysis_describes_itself():
-    for key, spec in REGISTRY.items():
+def test_no_draft_is_served():
+    assert DRAFTS, "__draft/ is empty; drop the directory rather than leaving it"
+    assert not set(REGISTRY) & set(DRAFTS)
+
+
+def test_every_analysis_describes_itself():
+    for key, spec in ALL.items():
         assert spec.id == key
         described = spec.describe()
         assert described["question"].endswith("?")
@@ -197,7 +209,7 @@ DAILY_ANALYSES = {"livestock-heat"}
 
 
 def test_every_analysis_reads_monthly_collections_unless_it_is_listed():
-    for spec in REGISTRY.values():
+    for spec in ALL.values():
         if spec.id in DAILY_ANALYSES:
             continue
         for source in spec.inputs:
@@ -501,7 +513,7 @@ def test_gdd_shift_uses_the_length_of_each_month():
 
 
 def test_gdd_shift_reaches_back_in_months_not_days():
-    from ferspas_tile.functions import REGISTRY as R
+    R = ALL
 
     offsets = {i.role: i.offset_months for i in R["gdd-shift"].inputs}
     assert offsets["tmax_then"] == -240
@@ -530,7 +542,7 @@ def test_night_warming_is_a_difference_so_kelvin_needs_no_conversion():
 
 def test_the_night_warming_baseline_is_fixed_in_calendar_years():
     """A baseline that slides with the date being viewed is not a baseline."""
-    from ferspas_tile.functions import REGISTRY as R
+    R = ALL
 
     years = sorted(i.at_year for i in R["night-warming"].inputs if i.at_year)
     assert years == list(range(1979, 1999))

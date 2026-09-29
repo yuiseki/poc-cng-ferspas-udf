@@ -112,16 +112,36 @@ and the calculation stayed trapped there. Here it is a file.
 | `diurnal-range` | How far did the temperature swing between afternoon and night? | TMAX-AVG-M, TMIN-AVG-M | K |
 | `change` | Was this month wetter or drier than the same month a year ago? | PF-M twice | mm/month |
 | `growing-conditions` | Was this month both warm enough and wet enough to grow food? | TMAX-AVG-M, TMIN-AVG-M, PF-M, ET0-M | score |
+| `gdd-shift` | Is there more usable warmth than twenty years ago? | TMAX-AVG-M, TMIN-AVG-M, twice | degree-days |
+| `livestock-heat` | How hard is this afternoon's heat on cattle? | TMAX, RH15 (daily) | index |
+
+### Drafts: written, tested, not served
+
+`src/ferspas_tile/functions/__draft/` holds eight more. They work and their
+tests run, and the server does not load them.
+
+| id | question | reads | unit |
+| --- | --- | --- | --- |
 | `month-percentile` | Was this month's rain unusual for the time of year? | PF-M x 40 | percentile |
 | `dependable-rainfall` | What can a farmer count on four years in five? | PF-M x 40 | mm/month |
 | `rainfall-variability` | How unreliable is the rain here? | PF-M x 40 | % |
 | `consecutive-dry-months` | How long does this place go without usable rain? | PF-M x 12, ET0-M x 12 | months |
 | `aridity-annual` | Can a year of rain meet a year of demand? | PF-M x 12, ET0-M x 12 | ratio |
 | `fournier-erosivity` | How hard is the rain on bare soil? | PF-M x 12 | mm |
-| `gdd-shift` | Is there more usable warmth than twenty years ago? | TMAX-AVG-M, TMIN-AVG-M, twice | degree-days |
 | `night-warming` | Are the nights warmer than in 1979 to 1998? | TMIN-AVG-M x 21 | K |
-| `livestock-heat` | How hard is this afternoon's heat on cattle? | TMAX, RH15 (daily) | index |
 | `months-since-rain` | How long since this place had usable rain? | PF-M x 24 | months |
+
+The difference between the two tables is how many COGs one tile opens: two to
+four above, twelve to forty below. The read path is sized for the first case.
+`config.py` sets `VSI_CACHE_SIZE` to half a gigabyte, which GDAL applies per
+file handle, and six concurrent forty-frame tiles took the process from 325 MiB
+to 1106 MiB. A browser opening one of those viewers asks for about six tiles at
+once, so the pod passed its 2 GiB limit, was OOM killed, and some tiles came
+back 502 while the rest of the map drew normally.
+
+That is a read path to size, not an analysis to fix, and until it is sized
+these eight stay out of the registry rather than sitting in it and failing
+under load.
 
 Each analysis carries an `explanation`: a few sentences for someone who does
 not work in agriculture or remote sensing, saying what is being subtracted from

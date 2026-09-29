@@ -7,6 +7,13 @@ they are what the field actually wants rather than what is easy. They have been
 filtered here to the ones this server can compute, and the reduction made to
 each one is stated.
 
+All ten were implemented and all ten pass their tests. Eight of them are not
+served: they open twelve to forty COGs per tile, and the read path is sized for
+two to four, so a browser opening one of their viewers OOM killed the pod. They
+live in `src/ferspas_tile/functions/__draft/`, and the README says what has to
+be sized before they come back. The two still served are `gdd-shift` and
+`livestock-heat`.
+
 Everything reads the AgERA5 monthly collections unless stated:
 
 | collection | unit | span |
