@@ -114,6 +114,39 @@ and the calculation stayed trapped there. Here it is a file.
 | `growing-conditions` | Was this month both warm enough and wet enough to grow food? | TMAX-AVG-M, TMIN-AVG-M, PF-M, ET0-M | score |
 | `gdd-shift` | Is there more usable warmth than twenty years ago? | TMAX-AVG-M, TMIN-AVG-M, twice | degree-days |
 | `livestock-heat` | How hard is this afternoon's heat on cattle? | TMAX, RH15 (daily) | index |
+| `warmth-axis` | How far is this month from an average month on Earth? | PF-M, ET0-M, TMAX-AVG-M, TMIN-AVG-M | standard deviations |
+| `water-axis` | Is this month wet or dry once its temperature is accounted for? | the same four | standard deviations |
+| `unusual-combination` | Is this combination one that hardly occurs? | the same four | distance squared |
+
+### Three fitted once, applied per pixel
+
+The last three read the same four variables and differ only in what they do
+with them, because all three come from one fit. `scripts/fit_climate_axes.py`
+takes 1.86 million pixels over four months, works out the mean, the spread and
+the covariance of rainfall, evaporative demand and the two temperatures, and
+prints constants that are pasted into `climate_axes.py`. `warmth-axis` and
+`water-axis` are the first two principal components of that fit, 73.5% and
+20.9% of the variance. `unusual-combination` is the Mahalanobis distance under
+the same covariance.
+
+The fit has to be frozen rather than done per tile. A per-tile fit would give
+every tile its own definition of an average month, and the seams would appear
+the moment the map was panned: the same pixel would change colour depending on
+which tile it fell in. Freezing it is also what keeps these three inside the
+budget, because the expensive part happens once offline and a tile then reads
+four frames like any other analysis.
+
+The method is borrowed from `study-geoai-algo-py`, which fits principal
+components to street survey values over 250 m cells in Tokyo. None of its
+numbers carry over; what carries over is the check its 006-B insists on, that
+an axis fitted on one sample has to survive on another before it is worth
+keeping. Fitted on January, April and July separately here, the loadings agree
+to 0.02 and the explained variance to 0.01.
+
+Measured on six concurrent tiles, the shape a browser actually asks for:
+`warmth-axis` 4.15 s, `water-axis` 3.63 s, `unusual-combination` 3.64 s, against
+`growing-conditions` at 6.01 s for the same four frames. Memory peaked at 564
+MiB.
 
 ### Drafts: written, tested, not served
 

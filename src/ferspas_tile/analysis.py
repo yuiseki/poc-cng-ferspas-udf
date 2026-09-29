@@ -25,8 +25,11 @@ exactly two ramps and one rule for choosing between them.
 
 * ``DIVERGING`` (RdBu) for a quantity with a meaningful neutral value, and only
   when the displayed range is symmetric around it. Blue is above the neutral,
-  red below. Every one of these happens to be about water, so blue is always
-  "more water than the neutral".
+  red below, always, whatever the quantity is. This used to say that every
+  diverging analysis happened to be about water, so that blue always meant more
+  water. That stopped being true when an analysis of warmth arrived, and the
+  rule that survived is the weaker and more honest one: blue is more of
+  whatever the legend names, and the legend always names it.
 * ``SEQUENTIAL`` (viridis) for an unsigned magnitude. Dark is low, bright is
   high, for every such analysis, so brightness always means "more of whatever
   the legend names".
