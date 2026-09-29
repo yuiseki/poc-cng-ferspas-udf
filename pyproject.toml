@@ -14,6 +14,10 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest==8.3.4",
+    # Only scripts/fit_climate_types.py needs this. The server does a
+    # nearest-centre lookup in numpy against frozen constants, so the image is
+    # built with --no-dev and never carries scikit-learn.
+    "scikit-learn==1.7.2",
 ]
 
 [build-system]

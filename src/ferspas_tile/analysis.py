@@ -33,6 +33,18 @@ exactly two ramps and one rule for choosing between them.
 * ``SEQUENTIAL`` (viridis) for an unsigned magnitude. Dark is low, bright is
   high, for every such analysis, so brightness always means "more of whatever
   the legend names".
+* ``CATEGORICAL`` for a classification, where the output is a class number and
+  nothing in between two of them means anything. Neither ramp can carry that:
+  on either of them two adjacent class numbers come out nearly the same colour,
+  so types that are not alike look alike. The palette is a fixed, colourblind
+  safe sequence assigned in the order the analysis lists its classes, which
+  keeps colour a contract rather than a per-analysis decision.
+
+  The cost is worth naming. On a categorical map hue means "a different type"
+  and nothing else. It does not mean colder, or more, or worse, so the legend
+  is required reading in a way it is not on the other two. The classes are
+  listed in a deliberate order rather than the order a clustering happened to
+  number them, and that order is the only ranking in the map.
 
 Hue encodes direction, never judgement. Red is not "bad": less rain than last
 year is a problem in a drought and a relief in a flood, and a tile server does
@@ -54,7 +66,23 @@ KELVIN = 273.15
 # The only two ramps, and the only two colormap names an analysis may use.
 DIVERGING = "diverging"
 SEQUENTIAL = "sequential"
+CATEGORICAL = "categorical"
 RAMPS = {DIVERGING: "rdbu", SEQUENTIAL: "viridis"}
+
+# Okabe and Ito's qualitative palette, reordered to open on a blue and to keep
+# a red and a green from ever sitting next to each other. It is designed so
+# that no two entries collapse into one another for a colourblind reader, and
+# so that none of them reads as ranked above another.
+PALETTE = (
+    (0, 114, 178),    # blue
+    (230, 159, 0),    # orange
+    (0, 158, 115),    # bluish green
+    (204, 121, 167),  # reddish purple
+    (86, 180, 233),   # sky blue
+    (213, 94, 0),     # vermillion
+    (240, 228, 66),   # yellow
+    (153, 153, 153),  # grey
+)
 
 
 @dataclass(frozen=True)
@@ -124,6 +152,9 @@ class Analysis:
     # the displayed range has to sit symmetrically around it, or the colour a
     # reader reads as "neutral" lands somewhere that means nothing.
     neutral: float | None = None
+    # For a categorical analysis: what class 0, 1, 2 and so on mean, in the
+    # order they should be read. compute() returns the index into this.
+    classes: tuple[str, ...] = ()
     parameters: tuple[Parameter, ...] = field(default_factory=tuple)
     notes: str = ""
 
@@ -146,12 +177,35 @@ class Analysis:
         elif self.scale == SEQUENTIAL:
             if self.neutral is not None:
                 raise ValueError(f"{self.id}: a sequential scale has no neutral value")
+        elif self.scale == CATEGORICAL:
+            if self.neutral is not None:
+                raise ValueError(f"{self.id}: a categorical scale has no neutral value")
+            if len(self.classes) < 2:
+                raise ValueError(f"{self.id}: a classification needs classes to name")
+            if len(self.classes) > len(PALETTE):
+                raise ValueError(
+                    f"{self.id}: {len(self.classes)} classes but the palette has"
+                    f" {len(PALETTE)}, and a repeated colour is two types drawn"
+                    f" as one"
+                )
+            if self.rescale != (0.0, float(len(self.classes) - 1)):
+                raise ValueError(
+                    f"{self.id}: rescale has to be the range of class numbers,"
+                    f" (0.0, {float(len(self.classes) - 1)})"
+                )
         else:
             raise ValueError(f"{self.id}: unknown scale {self.scale!r}")
+        if self.classes and self.scale != CATEGORICAL:
+            raise ValueError(f"{self.id}: only a categorical analysis has classes")
 
     @property
-    def colormap_name(self) -> str:
-        return RAMPS[self.scale]
+    def colormap_name(self) -> str | None:
+        """The named ramp, or None for a classification, which has no ramp."""
+        return RAMPS.get(self.scale)
+
+    def palette(self) -> tuple[tuple[int, int, int], ...]:
+        """One colour per class, in the order the classes are listed."""
+        return PALETTE[: len(self.classes)]
 
     def reading(self) -> str:
         """One line telling a reader what the colours mean here."""
@@ -160,6 +214,11 @@ class Analysis:
             return (
                 f"blue is above {self.neutral:g} {self.unit}, red below,"
                 f" white at {self.neutral:g}; clipped at {low:g} and {high:g}"
+            )
+        if self.scale == CATEGORICAL:
+            return (
+                "one colour per type, and the colours mean nothing but"
+                " difference: " + ", ".join(self.classes)
             )
         return f"dark is {low:g} {self.unit}, bright is {high:g} and above"
 
@@ -192,6 +251,8 @@ class Analysis:
             "rescale": list(self.rescale),
             "scale": self.scale,
             "neutral": self.neutral,
+            "classes": list(self.classes),
+            "palette": [list(c) for c in self.palette()],
             "colormap": self.colormap_name,
             "reading": self.reading(),
             "notes": self.notes,

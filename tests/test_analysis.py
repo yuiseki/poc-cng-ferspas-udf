@@ -117,12 +117,26 @@ def test_shift_moves_a_date_by_whole_days():
 
 
 def test_only_two_ramps_are_ever_used():
-    """A reader who learns one map should be able to read the next one."""
+    """A reader who learns one map should be able to read the next one.
+
+    A classification has no ramp at all, and says so by naming none. That is
+    the only way out of this rule, and it is not a loophole: a categorical map
+    looks nothing like a shaded one, so nobody reads it as if it were.
+    """
     from ferspas_tile.analysis import RAMPS
 
-    used = {spec.colormap_name for spec in REGISTRY.values()}
+    used = {spec.colormap_name for spec in REGISTRY.values()} - {None}
     assert used <= set(RAMPS.values())
     assert len(used) <= 2
+
+
+def test_nothing_gets_a_ramp_and_classes_at_the_same_time():
+    from ferspas_tile.analysis import CATEGORICAL
+
+    for spec in ALL.values():
+        has_ramp = spec.colormap_name is not None
+        assert has_ramp == (spec.scale != CATEGORICAL), spec.id
+        assert bool(spec.classes) == (spec.scale == CATEGORICAL), spec.id
 
 
 def test_a_diverging_scale_is_symmetric_around_its_neutral():

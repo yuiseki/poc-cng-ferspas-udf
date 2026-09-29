@@ -257,7 +257,27 @@ function paintCollectionRamp(colormap, lo, hi, unit) {
 
 // Two ramps only, chosen by the analysis's scale kind, so the same colour means
 // the same thing on every analysis. Raw collections keep FAO's own ramp.
+//
+// A classification is the exception and looks like one: hard-edged blocks of
+// unrelated colour with the class names under them, so it cannot be mistaken
+// for a scale that runs from low to high.
+function swatches(a) {
+  const stops = a.palette.map((c, i) => {
+    const from = (i * 100) / a.palette.length;
+    const to = ((i + 1) * 100) / a.palette.length;
+    return `rgb(${c.join(",")}) ${from}%, rgb(${c.join(",")}) ${to}%`;
+  });
+  return `linear-gradient(90deg, ${stops.join(",")})`;
+}
+
 function paintAnalysisRamp(a) {
+  if (a.scale === "categorical") {
+    el("ramp").style.background = swatches(a);
+    el("lo").textContent = "";
+    el("hi").textContent = a.classes.join(" \u00b7 ");
+    el("status").textContent = a.reading;
+    return;
+  }
   const ramp = a.scale === "diverging"
     ? ["#67001f", "#f7f7f7", "#053061"]
     : ["#440154", "#21918c", "#fde725"];

@@ -117,6 +117,7 @@ and the calculation stayed trapped there. Here it is a file.
 | `warmth-axis` | How far is this month from an average month on Earth? | PF-M, ET0-M, TMAX-AVG-M, TMIN-AVG-M | standard deviations |
 | `water-axis` | Is this month wet or dry once its temperature is accounted for? | the same four | standard deviations |
 | `unusual-combination` | Is this combination one that hardly occurs? | the same four | distance squared |
+| `climate-type` | Which of four kinds of month is this place having? | the same four | type |
 
 ### Three fitted once, applied per pixel
 
@@ -147,6 +148,37 @@ Measured on six concurrent tiles, the shape a browser actually asks for:
 `warmth-axis` 4.15 s, `water-axis` 3.63 s, `unusual-combination` 3.64 s, against
 `growing-conditions` at 6.01 s for the same four frames. Memory peaked at 564
 MiB.
+
+### A third scale, for the one map that is not a shading
+
+`climate-type` is k-means on the same standardised four variables, fitted once
+and frozen, then applied per pixel as a nearest-centre lookup. Freezing matters
+more here than for the axes: clustering per tile would not merely shift the
+scale, it would renumber the types, and type 2 in one tile would have nothing
+to do with type 2 in the next.
+
+It could not use either ramp. On viridis or RdBu two adjacent class numbers come
+out a shade apart, and the two types that make this map worth having are the
+two hot ones, which sit at nearly the same temperature and are told apart only
+by water: one gets a third of the rain its air could evaporate, the other three
+times as much. A shading would have drawn them as neighbours.
+
+So there is a third scale. `CATEGORICAL` has no ramp at all. It has a fixed
+colourblind-safe palette, Okabe and Ito's, applied in the order the analysis
+lists its classes, which keeps colour a contract rather than a per-analysis
+decision. The cost is worth stating: on a categorical map hue means "a
+different type" and nothing else, not colder and not better, so the legend is
+required reading in a way it is not on the other two. The class order is the
+only ranking the map carries.
+
+Four is the best k by silhouette over 3 to 8, at 0.469, but the whole range
+runs 0.413 to 0.469. That is choosing the least bad cut, not discovering that
+the world comes in four kinds of month, and 005-A in `study-geoai-algo-py`
+reached the same shape of answer about a different subject. What is classified
+is a month and not a place: the same pixel changes type between January and
+July, which is what the time axis is for.
+
+Measured: 4.79 s for six concurrent tiles, memory peaking at 441 MiB.
 
 ### Drafts: written, tested, not served
 

@@ -41,7 +41,7 @@ from rio_tiler.models import ImageData  # noqa: E402
 
 from . import ITEMS_PARQUET, __version__  # noqa: E402
 from .cache import TileCache  # noqa: E402
-from .analysis import Analysis, shift  # noqa: E402
+from .analysis import CATEGORICAL, PALETTE, Analysis, shift  # noqa: E402
 from .functions import REGISTRY  # noqa: E402
 from .index import (  # noqa: E402
     CollectionIndex,
@@ -507,15 +507,23 @@ def analysis_tile(
     params["frames"] = resolved
 
     result = spec.compute(stack, params)
-    low, high = spec.rescale
-    # Stretch the physical range onto the 256 entries of the colour table.
-    # Values outside it clamp rather than wrap, so an extreme day reads as
-    # "at least this much" instead of looking like its opposite.
-    scaled = np.clip((result - low) / (high - low), 0.0, 1.0)
-    indexed = np.ma.filled(scaled, 0.0) * 255.0
-    indexed = indexed.astype("uint8")[None, ...]
-
-    table = default_colormaps.get(spec.colormap_name)
+    if spec.scale == CATEGORICAL:
+        # A class number is already an index. Stretching it onto 256 entries
+        # and reading a ramp back would put two types a shade apart, which is
+        # the whole reason this scale exists.
+        indexed = np.ma.filled(result, 0.0).astype("uint8")[None, ...]
+        table = {
+            value: (*PALETTE[value % len(PALETTE)], 255) for value in range(256)
+        }
+    else:
+        low, high = spec.rescale
+        # Stretch the physical range onto the 256 entries of the colour table.
+        # Values outside it clamp rather than wrap, so an extreme day reads as
+        # "at least this much" instead of looking like its opposite.
+        scaled = np.clip((result - low) / (high - low), 0.0, 1.0)
+        indexed = np.ma.filled(scaled, 0.0) * 255.0
+        indexed = indexed.astype("uint8")[None, ...]
+        table = default_colormaps.get(spec.colormap_name)
     coloured, _ = apply_cmap(indexed, table)
     # Pixels with no data in any input stay transparent.
     alpha = np.where(np.ma.getmaskarray(result), 0, 255).astype("uint8")

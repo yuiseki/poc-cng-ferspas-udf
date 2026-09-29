@@ -119,8 +119,15 @@ function card(a) {
     </div>
     <div class="ramp"></div>
     <p class="reading">${a.reading}</p>`;
-  node.querySelector(".ramp").style.background =
-    `linear-gradient(90deg, ${RAMPS[a.scale].join(",")})`;
+  // A classification has no ramp; its colours are blocks, one per class.
+  node.querySelector(".ramp").style.background = a.scale === "categorical"
+    ? `linear-gradient(90deg, ${a.palette.map((c, i) => {
+        const rgb = `rgb(${c.join(",")})`;
+        const from = (i * 100) / a.palette.length;
+        const to = ((i + 1) * 100) / a.palette.length;
+        return `${rgb} ${from}%, ${rgb} ${to}%`;
+      }).join(",")})`
+    : `linear-gradient(90deg, ${RAMPS[a.scale].join(",")})`;
   return node;
 }
 
